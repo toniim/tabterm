@@ -29,6 +29,7 @@ export function Sidebar() {
   const setActiveSession = useStore((s) => s.setActiveSession);
 
   const drag = useRef<Drag | null>(null);
+  const grpTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [over, setOver] = useState<string | null>(null);
 
   if (!primaryTabId) {
@@ -172,19 +173,29 @@ export function Sidebar() {
                   draggable
                   onDragStart={onDragStart("group", group.id)}
                   onDragEnd={onDragEnd}
-                  className={`flex items-center gap-1.5 px-2 py-1.5 text-xs uppercase tracking-wide text-[var(--faint)] ${insertBar(
+                  // single-click toggles (debounced so a double-click, which
+                  // fires two clicks first, cancels it and edits instead)
+                  onClick={() => {
+                    clearTimeout(grpTimer.current);
+                    const gid = group.id;
+                    grpTimer.current = setTimeout(() => sendMessage({ type: "group:toggle", groupId: gid }), 200);
+                  }}
+                  onDoubleClick={() => clearTimeout(grpTimer.current)}
+                  className={`flex items-center gap-1.5 px-2 py-1.5 text-xs uppercase tracking-wide text-[var(--faint)] cursor-pointer hover:text-[var(--muted)] ${insertBar(
                     `top:${group.id}`,
                   )}`}
                 >
-                  <button
-                    onClick={() => sendMessage({ type: "group:toggle", groupId: group.id })}
-                    className="w-4 hover:text-[var(--text)]"
-                  >
-                    {group.isOpen ? "▾" : "▸"}
-                  </button>
+                  <span className="w-4 text-center">{group.isOpen ? "▾" : "▸"}</span>
                   <span className="inline-block w-2 h-2 rounded-full" style={{ background: COLOR_HEX[group.color] }} />
-                  <EditableLabel value={group.label} onCommit={(v) => rename("group", group.id, v)} className="flex-1 truncate" />
-                  <button onClick={() => addSession(group.id)} className="hover:text-[var(--text)]" title="New subtab in group">
+                  <EditableLabel value={group.label} onCommit={(v) => rename("group", group.id, v)} className="flex-1 truncate" bubble />
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      addSession(group.id);
+                    }}
+                    className="hover:text-[var(--text)]"
+                    title="New subtab in group"
+                  >
                     <Plus size={13} />
                   </button>
                 </div>

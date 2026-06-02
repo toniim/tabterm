@@ -6,10 +6,14 @@ export function EditableLabel({
   value,
   onCommit,
   className = "",
+  bubble = false,
 }: {
   value: string;
   onCommit: (next: string) => void;
   className?: string;
+  // When true, the display span's click/double-click are allowed to bubble to
+  // the parent (so a parent can handle single-click while this handles edit).
+  bubble?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -53,7 +57,7 @@ export function EditableLabel({
     <span
       className={className}
       onDoubleClick={(e) => {
-        e.stopPropagation();
+        if (!bubble) e.stopPropagation();
         setDraft(value);
         setEditing(true);
       }}
