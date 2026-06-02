@@ -3,11 +3,14 @@ import type { ClientMessage, Entity, ServerMessage } from "../shared/types.ts";
 import {
   applyLayout,
   createGroup,
+  createNote,
   createSession,
+  deleteNote,
   deleteSession,
   loadState,
   renameEntity,
   toggleGroup,
+  updateNote,
 } from "./db.ts";
 import { ensure, kill } from "./gotty.ts";
 
@@ -83,6 +86,21 @@ export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
       const { order, sessions } = applyLayout(msg.primaryTabId, msg.order, msg.groups);
       broadcast(setPatch("order", { primaryTabId: msg.primaryTabId, order }));
       for (const session of sessions) broadcast(setPatch("session", session));
+      break;
+    }
+    case "note:create": {
+      broadcast(setPatch("note", createNote(msg.sessionId)));
+      break;
+    }
+    case "note:update": {
+      const note = updateNote(msg.noteId, msg.content);
+      if (note) broadcast(setPatch("note", note));
+      break;
+    }
+    case "note:delete": {
+      if (deleteNote(msg.noteId)) {
+        broadcast({ type: "patch", entity: "note", op: "delete", id: msg.noteId });
+      }
       break;
     }
   }

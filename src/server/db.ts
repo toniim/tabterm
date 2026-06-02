@@ -2,9 +2,11 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import type {
+  AiMessage,
   AppState,
   Group,
   GroupColor,
+  Note,
   PrimaryTab,
   Session,
 } from "../shared/types.ts";
@@ -75,6 +77,10 @@ interface SessionRow {
   cwd: string; gotty_port: number | null; position: number;
 }
 interface OrderRow { primary_tab_id: string; order_json: string }
+interface NoteRow {
+  id: string; session_id: string; content: string; position: number; updated_at: number;
+}
+interface AiRow { role: string; content: string }
 
 const toPrimaryTab = (r: PrimaryTabRow): PrimaryTab => ({
   id: r.id, label: r.label, position: r.position,
@@ -95,6 +101,13 @@ const toSession = (r: SessionRow): Session => ({
   cwd: r.cwd,
   gottyPort: r.gotty_port,
   position: r.position,
+});
+const toNote = (r: NoteRow): Note => ({
+  id: r.id,
+  sessionId: r.session_id,
+  content: r.content,
+  position: r.position,
+  updatedAt: r.updated_at,
 });
 
 // ---- prepared statements -----------------------------------------------------
@@ -138,6 +151,26 @@ const q = {
     "INSERT INTO sidebar_order (primary_tab_id, order_json) VALUES (?, ?) " +
       "ON CONFLICT(primary_tab_id) DO UPDATE SET order_json = excluded.order_json",
   ),
+
+  allNotes: db.query<NoteRow, []>("SELECT * FROM notes ORDER BY position"),
+  getNote: db.query<NoteRow, [string]>("SELECT * FROM notes WHERE id = ?"),
+  insertNote: db.query(
+    "INSERT INTO notes (id, session_id, content, position) VALUES (?, ?, '', ?)",
+  ),
+  updateNote: db.query(
+    "UPDATE notes SET content = ?, updated_at = unixepoch() WHERE id = ?",
+  ),
+  deleteNote: db.query("DELETE FROM notes WHERE id = ?"),
+  maxNotePos: db.query<{ p: number | null }, [string]>(
+    "SELECT MAX(position) AS p FROM notes WHERE session_id = ?",
+  ),
+
+  aiHistory: db.query<AiRow, [string]>(
+    "SELECT role, content FROM ai_history WHERE session_id = ? ORDER BY id",
+  ),
+  insertAiTurn: db.query(
+    "INSERT INTO ai_history (session_id, role, content) VALUES (?, ?, ?)",
+  ),
 };
 
 // ---- state loading -----------------------------------------------------------
@@ -155,7 +188,10 @@ export function loadState(): AppState {
   const order: AppState["order"] = {};
   for (const r of q.allOrders.all()) order[r.primary_tab_id] = JSON.parse(r.order_json);
 
-  return { primaryTabs, groups, sessions, order };
+  const notes: AppState["notes"] = {};
+  for (const r of q.allNotes.all()) notes[r.id] = toNote(r);
+
+  return { primaryTabs, groups, sessions, order, notes };
 }
 
 function readOrder(primaryTabId: string): string[] {
@@ -295,4 +331,43 @@ export function setSessionPort(sessionId: string, port: number | null): void {
 
 export function allSessionIds(): string[] {
   return q.allSessions.all().map((r) => r.id);
+}
+
+// ---- notes -------------------------------------------------------------------
+
+export function createNote(sessionId: string): Note {
+  const id = randomUUID();
+  const position = (q.maxNotePos.get(sessionId)?.p ?? -1) + 1;
+  q.insertNote.run(id, sessionId, position);
+  return toNote(q.getNote.get(id)!);
+}
+
+export function updateNote(noteId: string, content: string): Note | null {
+  if (!q.getNote.get(noteId)) return null;
+  q.updateNote.run(content, noteId);
+  return toNote(q.getNote.get(noteId)!);
+}
+
+export function deleteNote(noteId: string): boolean {
+  if (!q.getNote.get(noteId)) return false;
+  q.deleteNote.run(noteId);
+  return true;
+}
+
+// ---- AI history --------------------------------------------------------------
+
+export function getAiHistory(sessionId: string): AiMessage[] {
+  return q.aiHistory.all(sessionId).map((r) => ({
+    role: r.role as AiMessage["role"],
+    content: r.content,
+  }));
+}
+
+export function addAiTurn(sessionId: string, role: AiMessage["role"], content: string): void {
+  q.insertAiTurn.run(sessionId, role, content);
+}
+
+export function sessionMeta(sessionId: string): { label: string; cwd: string } | null {
+  const r = q.getSession.get(sessionId);
+  return r ? { label: r.label, cwd: r.cwd } : null;
 }

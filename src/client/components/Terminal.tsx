@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { registerScrollback } from "../terminals.ts";
 
 const MAX_RETRIES = 5;
 
@@ -67,6 +68,16 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     });
     const onResize = term.onResize(sendResize);
 
+    // Expose a live scrollback snapshot for the AI assistant (Req 7).
+    const unregister = registerScrollback(sessionId, () => {
+      const buf = term.buffer.active;
+      const lines: string[] = [];
+      for (let i = 0; i < buf.length; i++) {
+        lines.push(buf.getLine(i)?.translateToString(true) ?? "");
+      }
+      return lines.filter((l) => l.trim() !== "");
+    });
+
     const ro = new ResizeObserver(() => {
       try {
         fit.fit();
@@ -82,6 +93,7 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       closed = true;
       clearTimeout(reconnectTimer);
       ro.disconnect();
+      unregister();
       onData.dispose();
       onResize.dispose();
       ws?.close();

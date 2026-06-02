@@ -1,4 +1,5 @@
 import { useStore } from "../store.ts";
+import { RightPanel } from "./RightPanel.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 import { Terminal } from "./Terminal.tsx";
 import { TitleBar } from "./TitleBar.tsx";
@@ -21,6 +22,7 @@ export function App() {
             </div>
           )}
         </main>
+        {session && <RightPanel sessionId={session.id} />}
       </div>
     </div>
   );

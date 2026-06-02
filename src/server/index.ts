@@ -1,5 +1,6 @@
 import type { ServerWebSocket, WebSocketHandler } from "bun";
 import { join } from "node:path";
+import * as ai from "./ai.ts";
 import { seedIfEmpty } from "./db.ts";
 import { killAll, respawnAll } from "./gotty.ts";
 import * as proxy from "./proxy.ts";
@@ -56,6 +57,9 @@ const server = Bun.serve({
       if (server.upgrade(req, { data: { kind: "app" } })) return undefined;
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
+
+    if (url.pathname === "/api/ai/chat" && req.method === "POST") return ai.handleChat(req);
+    if (url.pathname === "/api/ai/history") return ai.handleHistory(url);
 
     const api = url.pathname.startsWith("/api/") ? handleApi(url) : null;
     if (api) return api;

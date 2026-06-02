@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   AppState,
   Group,
+  Note,
   PrimaryTab,
   ServerMessage,
   Session,
@@ -20,7 +21,7 @@ interface StoreState extends AppState {
   setActiveSession: (id: string | null) => void;
 }
 
-const empty: AppState = { primaryTabs: {}, groups: {}, sessions: {}, order: {} };
+const empty: AppState = { primaryTabs: {}, groups: {}, sessions: {}, order: {}, notes: {} };
 
 export const useStore = create<StoreState>((set, get) => ({
   ...empty,
@@ -54,6 +55,10 @@ export const useStore = create<StoreState>((set, get) => ({
         const activeSessionId =
           get().activeSessionId === msg.id ? null : get().activeSessionId;
         set({ sessions, activeSessionId });
+      } else if (msg.entity === "note") {
+        const notes = { ...get().notes };
+        delete notes[msg.id];
+        set({ notes });
       }
       return;
     }
@@ -80,6 +85,11 @@ export const useStore = create<StoreState>((set, get) => ({
           order: string[];
         };
         set({ order: { ...get().order, [primaryTabId]: order } });
+        break;
+      }
+      case "note": {
+        const n = msg.data as Note;
+        set({ notes: { ...get().notes, [n.id]: n } });
         break;
       }
     }
