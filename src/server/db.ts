@@ -116,6 +116,7 @@ const q = {
     "INSERT INTO sessions (id, primary_tab_id, group_id, label, cwd, gotty_port, position) VALUES (?, ?, ?, ?, '~', NULL, ?)",
   ),
   getSession: db.query<SessionRow, [string]>("SELECT * FROM sessions WHERE id = ?"),
+  setSessionPort: db.query("UPDATE sessions SET gotty_port = ? WHERE id = ?"),
   deleteSession: db.query("DELETE FROM sessions WHERE id = ?"),
   deleteSessionNotes: db.query("DELETE FROM notes WHERE session_id = ?"),
   deleteSessionAi: db.query("DELETE FROM ai_history WHERE session_id = ?"),
@@ -230,4 +231,12 @@ export function deleteSession(
 export function reorder(primaryTabId: string, order: string[]): string[] {
   writeOrder(primaryTabId, order);
   return order;
+}
+
+export function setSessionPort(sessionId: string, port: number | null): void {
+  q.setSessionPort.run(port, sessionId);
+}
+
+export function allSessionIds(): string[] {
+  return q.allSessions.all().map((r) => r.id);
 }

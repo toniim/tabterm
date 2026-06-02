@@ -8,6 +8,7 @@ import {
   reorder,
   toggleGroup,
 } from "./db.ts";
+import { ensure, kill } from "./gotty.ts";
 
 // App-level WS connections (distinct from the per-session GoTTY proxy sockets
 // that arrive in v0.2). Mutations are persisted first, then broadcast to all.
@@ -57,6 +58,7 @@ export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
     }
     case "session:create": {
       const { session, order } = createSession(msg.primaryTabId, msg.groupId, msg.label);
+      void ensure(session.id); // spawn the session's GoTTY shell
       broadcast(setPatch("session", session));
       if (order) broadcast(setPatch("order", { primaryTabId: msg.primaryTabId, order }));
       break;
@@ -64,6 +66,7 @@ export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
     case "session:delete": {
       const result = deleteSession(msg.sessionId);
       if (!result) break;
+      kill(msg.sessionId);
       broadcast({ type: "patch", entity: "session", op: "delete", id: msg.sessionId });
       if (result.order) {
         broadcast(setPatch("order", { primaryTabId: result.primaryTabId, order: result.order }));

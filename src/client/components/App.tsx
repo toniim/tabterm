@@ -1,5 +1,6 @@
 import { useStore } from "../store.ts";
 import { Sidebar } from "./Sidebar.tsx";
+import { Terminal } from "./Terminal.tsx";
 import { TitleBar } from "./TitleBar.tsx";
 
 export function App() {
@@ -11,16 +12,13 @@ export function App() {
       <TitleBar />
       <div className="flex-1 flex min-h-0">
         <Sidebar />
-        <main className="flex-1 flex items-center justify-center text-gray-500">
+        <main className="flex-1 min-w-0 bg-[var(--color-bg)]">
           {session ? (
-            <div className="text-center">
-              <div className="text-lg text-gray-300">{session.label}</div>
-              <div className="text-sm mt-1">
-                Terminal renderer arrives in v0.2 (GoTTY + xterm.js).
-              </div>
-            </div>
+            <Terminal key={session.id} sessionId={session.id} />
           ) : (
-            <div className="text-sm">Select or create a session to begin.</div>
+            <div className="h-full flex items-center justify-center text-gray-500 text-sm">
+              Select or create a session to begin.
+            </div>
           )}
         </main>
       </div>
