@@ -1,7 +1,10 @@
+import { useRef, useState } from "react";
 import type { GroupColor } from "../../shared/types.ts";
 import { GROUP_COLORS } from "../../shared/types.ts";
+import { buildTree, intoGroup, toTop, type Tree } from "../layout.ts";
 import { useStore } from "../store.ts";
 import { sendMessage } from "../ws.ts";
+import { EditableLabel } from "./EditableLabel.tsx";
 
 const COLOR_HEX: Record<GroupColor, string> = {
   slate: "#94a3b8",
@@ -14,6 +17,8 @@ const COLOR_HEX: Record<GroupColor, string> = {
   pink: "#ec4899",
 };
 
+type Drag = { kind: "group" | "session"; id: string };
+
 export function Sidebar() {
   const primaryTabId = useStore((s) => s.activePrimaryTabId);
   const groups = useStore((s) => s.groups);
@@ -22,36 +27,97 @@ export function Sidebar() {
   const activeSessionId = useStore((s) => s.activeSessionId);
   const setActiveSession = useStore((s) => s.setActiveSession);
 
+  const drag = useRef<Drag | null>(null);
+  const [over, setOver] = useState<string | null>(null);
+
   if (!primaryTabId) {
     return <aside className="w-60 border-r border-[var(--color-border)] bg-[var(--color-panel)]" />;
   }
 
-  const refs = order[primaryTabId] ?? [];
+  const tabId = primaryTabId;
+  const tree = buildTree(order[tabId] ?? [], groups, sessions);
 
-  function addGroup() {
+  const sendLayout = (t: Tree) =>
+    sendMessage({ type: "layout", primaryTabId: tabId, order: t.top, groups: t.groups });
+
+  // --- mutations ---
+  const addGroup = () => {
     const label = prompt("Group name?");
     if (!label) return;
     const color = GROUP_COLORS[Math.floor(Math.random() * GROUP_COLORS.length)];
-    sendMessage({ type: "group:create", primaryTabId: primaryTabId!, label, color });
-  }
-
-  function addSession(groupId?: string) {
+    sendMessage({ type: "group:create", primaryTabId: tabId, label, color });
+  };
+  const addSession = (groupId?: string) => {
     const label = prompt("Session name?");
     if (!label) return;
-    sendMessage({ type: "session:create", primaryTabId: primaryTabId!, groupId, label });
-  }
+    sendMessage({ type: "session:create", primaryTabId: tabId, groupId, label });
+  };
+  const rename = (entity: "group" | "session", id: string, label: string) =>
+    sendMessage({ type: "rename", entity, id, label });
 
-  function deleteSession(id: string) {
-    sendMessage({ type: "session:delete", sessionId: id });
-  }
+  // --- drag/drop ---
+  const onDragStart = (kind: Drag["kind"], id: string) => (e: React.DragEvent) => {
+    drag.current = { kind, id };
+    e.dataTransfer.effectAllowed = "move";
+  };
+  const onDragEnd = () => {
+    drag.current = null;
+    setOver(null);
+  };
+  const allowDrop = (key: string) => (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (over !== key) setOver(key);
+  };
+  // Drop at top level, before `beforeId` (null = append). Works for groups and
+  // sessions (a session dropped here becomes ungrouped).
+  const dropTop = (beforeId: string | null) => (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const d = drag.current;
+    if (d) sendLayout(toTop(tree, d.id, beforeId));
+    onDragEnd();
+  };
+  // Drop into a group. A session moves in (before `beforeSid`, or appended);
+  // a group dropped here is reordered before the target group instead.
+  const dropGroup = (gid: string, beforeSid: string | null) => (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const d = drag.current;
+    if (d?.kind === "session") sendLayout(intoGroup(tree, d.id, gid, beforeSid));
+    else if (d?.kind === "group") sendLayout(toTop(tree, d.id, gid));
+    onDragEnd();
+  };
 
-  const SessionItem = ({ id, dot }: { id: string; dot?: string }) => {
+  const insertBar = (key: string) =>
+    over === key ? "border-t-2 border-blue-400" : "border-t-2 border-transparent";
+
+  const SessionRow = ({
+    id,
+    dot,
+    onDrop,
+    overKey,
+  }: {
+    id: string;
+    dot?: string;
+    onDrop: (e: React.DragEvent) => void;
+    overKey: string;
+  }) => {
     const s = sessions[id];
     if (!s) return null;
     return (
       <div
-        className={`group flex items-center gap-2 pl-2 pr-1 py-1 rounded cursor-pointer text-sm ${
-          id === activeSessionId ? "bg-[var(--color-bg)] text-white" : "text-gray-300 hover:bg-[var(--color-bg)]/50"
+        draggable
+        onDragStart={onDragStart("session", id)}
+        onDragEnd={onDragEnd}
+        onDragOver={allowDrop(overKey)}
+        onDrop={onDrop}
+        className={`group flex items-center gap-2 pl-2 pr-1 py-1 rounded cursor-pointer text-sm ${insertBar(
+          overKey,
+        )} ${
+          id === activeSessionId
+            ? "bg-[var(--color-bg)] text-white"
+            : "text-gray-300 hover:bg-[var(--color-bg)]/50"
         }`}
         onClick={() => setActiveSession(id)}
       >
@@ -59,12 +125,16 @@ export function Sidebar() {
           className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
           style={{ background: dot ?? "#4b5563" }}
         />
-        <span className="truncate flex-1">{s.label}</span>
+        <EditableLabel
+          value={s.label}
+          onCommit={(v) => rename("session", id, v)}
+          className="truncate flex-1"
+        />
         <button
           className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 px-1"
           onClick={(e) => {
             e.stopPropagation();
-            deleteSession(id);
+            sendMessage({ type: "session:delete", sessionId: id });
           }}
           title="Delete session"
         >
@@ -76,16 +146,27 @@ export function Sidebar() {
 
   return (
     <aside className="w-60 shrink-0 border-r border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col">
-      <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
-        {refs.map((ref) => {
+      <div className="flex-1 overflow-y-auto p-2">
+        {tree.top.map((ref) => {
           const group = groups[ref];
           if (group) {
-            const children = Object.values(sessions)
-              .filter((s) => s.groupId === group.id)
-              .sort((a, b) => a.position - b.position);
+            const children = tree.groups[group.id] ?? [];
+            const overGroup = over === `g:${group.id}`;
             return (
-              <div key={group.id}>
-                <div className="flex items-center gap-1.5 px-1 py-1 text-xs uppercase tracking-wide text-gray-400">
+              <div
+                key={group.id}
+                className={overGroup ? "rounded ring-1 ring-blue-400/70" : ""}
+                onDragOver={allowDrop(`g:${group.id}`)}
+                onDrop={dropGroup(group.id, null)}
+              >
+                <div
+                  draggable
+                  onDragStart={onDragStart("group", group.id)}
+                  onDragEnd={onDragEnd}
+                  className={`flex items-center gap-1.5 px-1 py-1 text-xs uppercase tracking-wide text-gray-400 ${insertBar(
+                    `top:${group.id}`,
+                  )}`}
+                >
                   <button
                     onClick={() => sendMessage({ type: "group:toggle", groupId: group.id })}
                     className="w-4 text-gray-500 hover:text-gray-200"
@@ -97,7 +178,11 @@ export function Sidebar() {
                     className="inline-block w-2 h-2 rounded-full"
                     style={{ background: COLOR_HEX[group.color] }}
                   />
-                  <span className="flex-1 truncate">{group.label}</span>
+                  <EditableLabel
+                    value={group.label}
+                    onCommit={(v) => rename("group", group.id, v)}
+                    className="flex-1 truncate"
+                  />
                   <button
                     onClick={() => addSession(group.id)}
                     className="text-gray-500 hover:text-gray-200 px-1"
@@ -107,17 +192,36 @@ export function Sidebar() {
                   </button>
                 </div>
                 {group.isOpen &&
-                  children.map((s) => (
-                    <div key={s.id} className="ml-3">
-                      <SessionItem id={s.id} dot={COLOR_HEX[group.color]} />
+                  children.map((sid) => (
+                    <div key={sid} className="ml-3">
+                      <SessionRow
+                        id={sid}
+                        dot={COLOR_HEX[group.color]}
+                        overKey={`c:${sid}`}
+                        onDrop={dropGroup(group.id, sid)}
+                      />
                     </div>
                   ))}
               </div>
             );
           }
           // ungrouped session
-          return <SessionItem key={ref} id={ref} />;
+          return (
+            <SessionRow
+              key={ref}
+              id={ref}
+              overKey={`top:${ref}`}
+              onDrop={dropTop(ref)}
+            />
+          );
         })}
+
+        {/* trailing drop zone: append to top level / ungroup */}
+        <div
+          onDragOver={allowDrop("bottom")}
+          onDrop={dropTop(null)}
+          className={`h-8 mt-1 rounded ${over === "bottom" ? "bg-blue-400/10 ring-1 ring-blue-400/50" : ""}`}
+        />
       </div>
 
       <div className="border-t border-[var(--color-border)] p-2 flex gap-2">

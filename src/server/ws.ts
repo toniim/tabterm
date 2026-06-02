@@ -1,11 +1,12 @@
 import type { ServerWebSocket } from "bun";
 import type { ClientMessage, Entity, ServerMessage } from "../shared/types.ts";
 import {
+  applyLayout,
   createGroup,
   createSession,
   deleteSession,
   loadState,
-  reorder,
+  renameEntity,
   toggleGroup,
 } from "./db.ts";
 import { ensure, kill } from "./gotty.ts";
@@ -73,9 +74,15 @@ export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
       }
       break;
     }
-    case "reorder": {
-      const order = reorder(msg.primaryTabId, msg.order);
+    case "rename": {
+      const updated = renameEntity(msg.entity, msg.id, msg.label);
+      if (updated) broadcast(setPatch(msg.entity, updated));
+      break;
+    }
+    case "layout": {
+      const { order, sessions } = applyLayout(msg.primaryTabId, msg.order, msg.groups);
       broadcast(setPatch("order", { primaryTabId: msg.primaryTabId, order }));
+      for (const session of sessions) broadcast(setPatch("session", session));
       break;
     }
   }

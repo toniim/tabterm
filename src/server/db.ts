@@ -117,7 +117,13 @@ const q = {
   ),
   getSession: db.query<SessionRow, [string]>("SELECT * FROM sessions WHERE id = ?"),
   setSessionPort: db.query("UPDATE sessions SET gotty_port = ? WHERE id = ?"),
+  setSessionGroupPos: db.query("UPDATE sessions SET group_id = ?, position = ? WHERE id = ?"),
   deleteSession: db.query("DELETE FROM sessions WHERE id = ?"),
+
+  getPrimaryTab: db.query<PrimaryTabRow, [string]>("SELECT * FROM primary_tabs WHERE id = ?"),
+  renamePrimaryTab: db.query("UPDATE primary_tabs SET label = ? WHERE id = ?"),
+  renameGroup: db.query("UPDATE groups SET label = ? WHERE id = ?"),
+  renameSession: db.query("UPDATE sessions SET label = ? WHERE id = ?"),
   deleteSessionNotes: db.query("DELETE FROM notes WHERE session_id = ?"),
   deleteSessionAi: db.query("DELETE FROM ai_history WHERE session_id = ?"),
   maxGroupPos: db.query<{ p: number | null }, [string]>(
@@ -228,9 +234,59 @@ export function deleteSession(
   return { primaryTabId: existing.primary_tab_id, order };
 }
 
-export function reorder(primaryTabId: string, order: string[]): string[] {
+// Apply a full sidebar layout for a tab: persist the flat top-level order and
+// derive each session's group_id + position from it. Returns the new order plus
+// every session whose group/position was (re)written, for broadcasting.
+export function applyLayout(
+  primaryTabId: string,
+  order: string[],
+  groups: Record<string, string[]>,
+): { order: string[]; sessions: Session[] } {
   writeOrder(primaryTabId, order);
-  return order;
+  const changed: string[] = [];
+
+  order.forEach((ref, i) => {
+    // Top-level entries that aren't groups are ungrouped sessions.
+    if (!q.getGroup.get(ref)) {
+      q.setSessionGroupPos.run(null, i, ref);
+      changed.push(ref);
+    }
+  });
+
+  for (const [groupId, sessionIds] of Object.entries(groups)) {
+    sessionIds.forEach((sid, i) => {
+      q.setSessionGroupPos.run(groupId, i, sid);
+      changed.push(sid);
+    });
+  }
+
+  const sessions = changed
+    .map((id) => q.getSession.get(id))
+    .filter((r): r is SessionRow => r !== null)
+    .map(toSession);
+  return { order, sessions };
+}
+
+export type RenamableEntity = "primaryTab" | "group" | "session";
+
+export function renameEntity(
+  entity: RenamableEntity,
+  id: string,
+  label: string,
+): PrimaryTab | Group | Session | null {
+  if (entity === "primaryTab") {
+    if (!q.getPrimaryTab.get(id)) return null;
+    q.renamePrimaryTab.run(label, id);
+    return toPrimaryTab(q.getPrimaryTab.get(id)!);
+  }
+  if (entity === "group") {
+    if (!q.getGroup.get(id)) return null;
+    q.renameGroup.run(label, id);
+    return toGroup(q.getGroup.get(id)!);
+  }
+  if (!q.getSession.get(id)) return null;
+  q.renameSession.run(label, id);
+  return toSession(q.getSession.get(id)!);
 }
 
 export function setSessionPort(sessionId: string, port: number | null): void {

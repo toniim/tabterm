@@ -60,4 +60,8 @@ export type ClientMessage =
   | { type: "session:delete"; sessionId: string }
   | { type: "group:create"; primaryTabId: string; label: string; color: GroupColor }
   | { type: "group:toggle"; groupId: string }
-  | { type: "reorder"; primaryTabId: string; order: string[] };
+  | { type: "rename"; entity: "primaryTab" | "group" | "session"; id: string; label: string }
+  // Full desired sidebar layout for a tab after a drag. `order` is the flat
+  // top-level list of `groupId | sessionId`; `groups` maps each groupId to its
+  // ordered child session ids. The server derives groupId/position from this.
+  | { type: "layout"; primaryTabId: string; order: string[]; groups: Record<string, string[]> };

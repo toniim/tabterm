@@ -1,4 +1,6 @@
 import { useStore } from "../store.ts";
+import { sendMessage } from "../ws.ts";
+import { EditableLabel } from "./EditableLabel.tsx";
 
 const STATUS_LABEL = {
   connecting: "connecting…",
@@ -32,8 +34,12 @@ export function TitleBar() {
               ? "bg-[var(--color-bg)] text-white"
               : "text-gray-400 hover:text-gray-200"
           }`}
+          title="Double-click to rename"
         >
-          {t.label}
+          <EditableLabel
+            value={t.label}
+            onCommit={(v) => sendMessage({ type: "rename", entity: "primaryTab", id: t.id, label: v })}
+          />
         </button>
       ))}
       <div className="ml-auto flex items-center gap-2 text-xs text-gray-400">
