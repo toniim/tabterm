@@ -27,6 +27,7 @@ export function Sidebar() {
   const order = useStore((s) => s.order);
   const activeSessionId = useStore((s) => s.activeSessionId);
   const setActiveSession = useStore((s) => s.setActiveSession);
+  const requestFocus = useStore((s) => s.requestFocus);
 
   const drag = useRef<Drag | null>(null);
   const grpTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -60,8 +61,8 @@ export function Sidebar() {
     const label = prompt("Subtab name?");
     if (!label) return;
     const id = crypto.randomUUID();
+    requestFocus(id);
     sendMessage({ type: "session:create", id, primaryTabId: tabId, groupId, label });
-    setActiveSession(id);
   };
   const rename = (entity: "group" | "session", id: string, label: string) =>
     sendMessage({ type: "rename", entity, id, label });

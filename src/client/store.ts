@@ -16,6 +16,9 @@ interface StoreState extends AppState {
   status: ConnStatus;
   activePrimaryTabId: string | null;
   activeSessionId: string | null;
+  // Set when this device creates a session; cleared once the matching session
+  // patch arrives and focus is applied. Keeps focus creator-only.
+  pendingFocusSessionId: string | null;
   // Per-session AI history, loaded lazily over REST and kept live via WS.
   aiHistory: Record<string, AiMessage[]>;
   theme: Theme;
@@ -26,6 +29,7 @@ interface StoreState extends AppState {
   applyServerMessage: (msg: ServerMessage) => void;
   setActivePrimaryTab: (id: string) => void;
   setActiveSession: (id: string | null) => void;
+  requestFocus: (id: string) => void;
   setAiHistory: (sessionId: string, messages: AiMessage[]) => void;
   toggleTheme: () => void;
   toggleNotes: () => void;
@@ -39,6 +43,7 @@ export const useStore = create<StoreState>((set, get) => ({
   status: "connecting",
   activePrimaryTabId: null,
   activeSessionId: null,
+  pendingFocusSessionId: null,
   aiHistory: {},
   theme: getInitialTheme(),
   showNotes: true,
@@ -48,6 +53,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   setActivePrimaryTab: (id) => set({ activePrimaryTabId: id, activeSessionId: null }),
   setActiveSession: (id) => set({ activeSessionId: id }),
+  requestFocus: (id) => set({ pendingFocusSessionId: id }),
   setAiHistory: (sessionId, messages) =>
     set({ aiHistory: { ...get().aiHistory, [sessionId]: messages } }),
   toggleTheme: () => {
@@ -108,7 +114,11 @@ export const useStore = create<StoreState>((set, get) => ({
       }
       case "session": {
         const s = msg.data as Session;
-        set({ sessions: { ...get().sessions, [s.id]: s } });
+        const pending = get().pendingFocusSessionId;
+        const focusPatch = pending === s.id
+          ? { activeSessionId: s.id, pendingFocusSessionId: null }
+          : {};
+        set({ sessions: { ...get().sessions, [s.id]: s }, ...focusPatch });
         break;
       }
       case "order": {
