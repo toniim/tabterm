@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -n server,client -c blue,green \"bun run dev:server\" \"bun run dev:client\"",
-    "dev:server": "bun --hot run src/server/index.ts",
-    "dev:client": "bunx --bun vite",
+    "dev:server": "bun --watch src/server/index.ts",
+    "dev:client": "vite",
     "build": "vite build",
     "start": "NODE_ENV=production bun src/server/index.ts",
     "typecheck": "tsc --noEmit",
