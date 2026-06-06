@@ -7,7 +7,6 @@ import { PrimaryTabs } from "./PrimaryTabs.tsx";
 import { RightPanel } from "./RightPanel.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 import { StatusBar } from "./StatusBar.tsx";
-import { SubTabs } from "./SubTabs.tsx";
 import { TerminalPanel } from "./TerminalPanel.tsx";
 
 export function App() {
@@ -19,7 +18,6 @@ export function App() {
     <div className="h-full flex flex-col bg-[var(--bg)]">
       <Header />
       <PrimaryTabs />
-      <SubTabs />
       <div className="flex-1 flex min-h-0">
         <Sidebar />
         {session ? (
