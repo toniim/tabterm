@@ -96,6 +96,16 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       ws.onerror = () => ws?.close();
     };
 
+    // Shift+Enter → ESC+CR, the sequence Claude Code recognizes as a newline-in-input
+    // (matches what `claude /terminal-setup` configures iTerm2 to send).
+    term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type === "keydown" && ev.key === "Enter" && ev.shiftKey && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+        if (ws?.readyState === WebSocket.OPEN) ws.send(enc.encode("\x1b\r"));
+        return false;
+      }
+      return true;
+    });
+
     const onData = term.onData((d) => {
       if (ws?.readyState === WebSocket.OPEN) ws.send(enc.encode(d));
     });
