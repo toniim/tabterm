@@ -29,7 +29,7 @@ export function NotesPanel({ sessionId }: { sessionId: string }) {
     <div className="h-full flex flex-col">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border)] text-xs">
         <span className="text-[var(--muted)]">
-          Assigned to secondary tab: <span className="font-semibold text-[var(--text)]">{label}</span>
+          For session: <span className="font-semibold text-[var(--text)]">{label}</span>
         </span>
       </div>
 
