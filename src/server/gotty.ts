@@ -1,16 +1,21 @@
 import { spawn, type Subprocess } from "bun";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { allSessionIds, sessionMeta, setSessionPort } from "./db.ts";
 
 // One GoTTY process per session. GoTTY itself forks a fresh shell for EACH
 // WebSocket connection, so two browsers on the same session get independent
 // shells (the "per-client shell" model) while we still track one port/session.
 
-const GOTTY_BIN = join(import.meta.dir, "../../bin/gotty");
+// Compiled binaries see `import.meta.dir` as a virtual `/$bunfs/...` path,
+// so external assets must resolve next to the executable instead.
+const ROOT = import.meta.dir.startsWith("/$bunfs/")
+  ? dirname(process.execPath)
+  : join(import.meta.dir, "../..");
+const GOTTY_BIN = join(ROOT, "bin/gotty");
 const BASE_PORT = Number(process.env.GOTTY_BASE_PORT ?? 4001);
-const BUNDLED_INIT = join(import.meta.dir, "session-init.bash");
+const BUNDLED_INIT = join(ROOT, "src/server/session-init.bash");
 
 // The shell command GoTTY forks for each session. By default we launch bash with
 // our prompt rcfile (which sources ~/.bashrc first). SESSION_INIT can point at a

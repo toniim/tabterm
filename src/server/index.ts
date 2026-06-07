@@ -1,5 +1,5 @@
 import type { ServerWebSocket, WebSocketHandler } from "bun";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import * as ai from "./ai.ts";
 import { seedIfEmpty } from "./db.ts";
 import { killAll, respawnAll, startHealthMonitor } from "./gotty.ts";
@@ -8,8 +8,15 @@ import { handleApi } from "./routes.ts";
 import * as appws from "./ws.ts";
 
 const PORT = Number(process.env.PORT ?? 3000);
-const isProd = process.env.NODE_ENV === "production";
-const DIST = join(import.meta.dir, "../../dist");
+// `bun build --compile` inlines `process.env.NODE_ENV` at build time, so a
+// runtime NODE_ENV=production has no effect on the compiled binary. Treat any
+// compiled run as prod — there's no Vite to serve the SPA in that mode.
+const COMPILED = import.meta.dir.startsWith("/$bunfs/");
+const isProd = COMPILED || process.env.NODE_ENV === "production";
+// Compiled binaries see source files via a virtual fs (`/$bunfs/...`), so
+// external assets must resolve next to the executable instead.
+const ROOT = COMPILED ? dirname(process.execPath) : join(import.meta.dir, "../..");
+const DIST = join(ROOT, "dist");
 
 type AppData = { kind: "app" };
 type SocketData = AppData | proxy.ProxyData;
