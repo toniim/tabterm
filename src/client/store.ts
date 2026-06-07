@@ -16,6 +16,9 @@ interface StoreState extends AppState {
   status: ConnStatus;
   activePrimaryTabId: string | null;
   activeSessionId: string | null;
+  // Remembers which session was last active in each workspace so switching
+  // tabs and back restores the previous console instead of blanking it.
+  lastSessionByTab: Record<string, string>;
   // Set when this device creates a session; cleared once the matching session
   // patch arrives and focus is applied. Keeps focus creator-only.
   pendingFocusSessionId: string | null;
@@ -42,11 +45,23 @@ interface StoreState extends AppState {
 
 const empty: AppState = { primaryTabs: {}, groups: {}, sessions: {}, order: {}, notes: {} };
 
+// Look up the remembered session for a tab and return it only if it still
+// points to an open session in that workspace; otherwise null.
+function restoreFor(get: () => StoreState, tabId: string | null): string | null {
+  if (!tabId) return null;
+  const sid = get().lastSessionByTab[tabId];
+  if (!sid) return null;
+  const s = get().sessions[sid];
+  if (!s || s.primaryTabId !== tabId || s.closedAt != null) return null;
+  return sid;
+}
+
 export const useStore = create<StoreState>((set, get) => ({
   ...empty,
   status: "connecting",
   activePrimaryTabId: null,
   activeSessionId: null,
+  lastSessionByTab: {},
   pendingFocusSessionId: null,
   aiHistory: {},
   theme: getInitialTheme(),
@@ -57,8 +72,14 @@ export const useStore = create<StoreState>((set, get) => ({
 
   setStatus: (status) => set({ status }),
 
-  setActivePrimaryTab: (id) => set({ activePrimaryTabId: id, activeSessionId: null }),
-  setActiveSession: (id) => set({ activeSessionId: id }),
+  setActivePrimaryTab: (id) =>
+    set({ activePrimaryTabId: id, activeSessionId: restoreFor(get, id) }),
+  setActiveSession: (id) => {
+    const tabId = get().activePrimaryTabId;
+    const next = { ...get().lastSessionByTab };
+    if (id && tabId) next[tabId] = id;
+    set({ activeSessionId: id, lastSessionByTab: next });
+  },
   requestFocus: (id) => set({ pendingFocusSessionId: id }),
   setAiHistory: (sessionId, messages) =>
     set({ aiHistory: { ...get().aiHistory, [sessionId]: messages } }),
@@ -88,9 +109,11 @@ export const useStore = create<StoreState>((set, get) => ({
       const firstTab = Object.values(state.primaryTabs)
         .filter((t) => t.closedAt == null)
         .sort((a, b) => a.position - b.position)[0];
+      const activePrimaryTabId = get().activePrimaryTabId ?? firstTab?.id ?? null;
       set({
         ...state,
-        activePrimaryTabId: get().activePrimaryTabId ?? firstTab?.id ?? null,
+        activePrimaryTabId,
+        activeSessionId: get().activeSessionId ?? restoreFor(get, activePrimaryTabId),
       });
       return;
     }
@@ -104,7 +127,11 @@ export const useStore = create<StoreState>((set, get) => ({
         delete notes[msg.id];
         const activeSessionId =
           get().activeSessionId === msg.id ? null : get().activeSessionId;
-        set({ sessions, notes, activeSessionId });
+        const lastSessionByTab = { ...get().lastSessionByTab };
+        for (const [tid, sid] of Object.entries(lastSessionByTab)) {
+          if (sid === msg.id) delete lastSessionByTab[tid];
+        }
+        set({ sessions, notes, activeSessionId, lastSessionByTab });
       }
       if (msg.entity === "primaryTab") {
         const primaryTabs = { ...get().primaryTabs };
@@ -122,6 +149,8 @@ export const useStore = create<StoreState>((set, get) => ({
         }
         const order = { ...get().order };
         delete order[msg.id];
+        const lastSessionByTab = { ...get().lastSessionByTab };
+        delete lastSessionByTab[msg.id];
         let activePrimaryTabId = get().activePrimaryTabId;
         let activeSessionId = get().activeSessionId;
         if (activePrimaryTabId === msg.id) {
@@ -129,9 +158,17 @@ export const useStore = create<StoreState>((set, get) => ({
             .filter((t) => t.closedAt == null)
             .sort((a, b) => a.position - b.position)[0];
           activePrimaryTabId = fallback?.id ?? null;
-          activeSessionId = null;
+          activeSessionId = restoreFor(get, activePrimaryTabId);
         }
-        set({ primaryTabs, sessions, notes, order, activePrimaryTabId, activeSessionId });
+        set({
+          primaryTabs,
+          sessions,
+          notes,
+          order,
+          lastSessionByTab,
+          activePrimaryTabId,
+          activeSessionId,
+        });
       }
       return;
     }
@@ -149,7 +186,7 @@ export const useStore = create<StoreState>((set, get) => ({
             .filter((other) => other.closedAt == null)
             .sort((a, b) => a.position - b.position)[0];
           activePrimaryTabId = fallback?.id ?? null;
-          activeSessionId = null;
+          activeSessionId = restoreFor(get, activePrimaryTabId);
         }
         set({ primaryTabs, activePrimaryTabId, activeSessionId });
         break;
