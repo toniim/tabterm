@@ -19,6 +19,9 @@ export interface PrimaryTab {
   // Default working directory for new sessions created under this workspace.
   // Empty string = "$HOME". May contain "~" / "~/..." — resolved server-side.
   cwd: string;
+  // null = visible; unix timestamp = hidden from the tab bar, listed in the
+  // closed-workspaces modal. Sessions inside are preserved untouched.
+  closedAt: number | null;
 }
 
 export interface Group {
@@ -104,6 +107,9 @@ export type ClientMessage =
   | { type: "group:toggle"; groupId: string }
   | { type: "tab:create"; label: string; cwd?: string; id?: string }
   | { type: "tab:setCwd"; tabId: string; cwd: string }
+  | { type: "tab:close"; tabId: string }
+  | { type: "tab:reopen"; tabId: string }
+  | { type: "tab:purge"; tabId: string }
   | { type: "rename"; entity: "primaryTab" | "group" | "session"; id: string; label: string }
   // Full desired sidebar layout for a tab after a drag. `order` is the flat
   // top-level list of `groupId | sessionId`; `groups` maps each groupId to its

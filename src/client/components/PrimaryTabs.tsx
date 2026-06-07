@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Archive, Compass, Folder, Plus } from "lucide-react";
+import { Archive, Compass, Folder, FolderArchive, Plus, X } from "lucide-react";
 import { useStore } from "../store.ts";
 import { sendMessage } from "../ws.ts";
 import { CwdPickerModal } from "./CwdPickerModal.tsx";
@@ -30,15 +30,39 @@ export function PrimaryTabs() {
   const showNotes = useStore((s) => s.showNotes);
   const toggleNotes = useStore((s) => s.toggleNotes);
   const toggleClosedSessions = useStore((s) => s.toggleClosedSessions);
+  const toggleClosedTabs = useStore((s) => s.toggleClosedTabs);
   const closedCount = useStore((s) =>
     Object.values(s.sessions).filter(
       (sess) => sess.primaryTabId === s.activePrimaryTabId && sess.closedAt != null,
     ).length,
   );
+  const closedTabsCount = useStore(
+    (s) => Object.values(s.primaryTabs).filter((t) => t.closedAt != null).length,
+  );
 
-  const tabs = Object.values(primaryTabs).sort((a, b) => a.position - b.position);
+  const tabs = Object.values(primaryTabs)
+    .filter((t) => t.closedAt == null)
+    .sort((a, b) => a.position - b.position);
   const activeTab = activeId ? primaryTabs[activeId] : null;
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  const sessionCountByTab = useStore((s) => {
+    const counts: Record<string, number> = {};
+    for (const sess of Object.values(s.sessions)) {
+      if (sess.closedAt != null) continue;
+      counts[sess.primaryTabId] = (counts[sess.primaryTabId] ?? 0) + 1;
+    }
+    return counts;
+  });
+
+  const hideTab = (id: string, label: string) => {
+    const openSessions = sessionCountByTab[id] ?? 0;
+    const msg = openSessions > 0
+      ? `Hide "${label}"? ${openSessions} subtab shell${openSessions === 1 ? "" : "s"} will be stopped (notes + history preserved).`
+      : `Hide "${label}"?`;
+    if (!confirm(msg)) return;
+    sendMessage({ type: "tab:close", tabId: id });
+  };
 
   const addTab = () => {
     const label = prompt("Workspace name?");
@@ -54,21 +78,37 @@ export function PrimaryTabs() {
       {tabs.map((t) => {
         const active = t.id === activeId;
         return (
-          <button
+          <div
             key={t.id}
-            onClick={() => setActive(t.id)}
-            className={`relative px-4 h-12 text-sm font-medium max-w-[180px] truncate ${
+            className={`group relative flex items-center h-12 max-w-[200px] ${
               active ? "text-[var(--text)]" : "text-[var(--muted)] hover:text-[var(--text)]"
             }`}
           >
-            <EditableLabel
-              value={t.label}
-              onCommit={(v) => sendMessage({ type: "rename", entity: "primaryTab", id: t.id, label: v })}
-            />
+            <button
+              onClick={() => setActive(t.id)}
+              className="pl-4 pr-1 h-12 text-sm font-medium truncate"
+            >
+              <EditableLabel
+                value={t.label}
+                onCommit={(v) =>
+                  sendMessage({ type: "rename", entity: "primaryTab", id: t.id, label: v })
+                }
+              />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                hideTab(t.id, t.label);
+              }}
+              className="mr-2 w-5 h-5 grid place-items-center rounded text-[var(--faint)] opacity-0 group-hover:opacity-100 hover:text-[var(--text)] hover:bg-[var(--hover)]"
+              title="Hide workspace"
+            >
+              <X size={12} />
+            </button>
             {active && (
               <span className="absolute left-3 right-3 -bottom-px h-0.5 rounded-full bg-[var(--orange)]" />
             )}
-          </button>
+          </div>
         );
       })}
       <button
@@ -91,6 +131,16 @@ export function PrimaryTabs() {
       )}
 
       <div className="ml-auto flex items-center gap-2.5">
+        {closedTabsCount > 0 && (
+          <button
+            onClick={toggleClosedTabs}
+            className="flex items-center gap-1.5 px-2.5 h-7 rounded-md text-xs text-[var(--muted)] hover:text-[var(--text)] hover:bg-[var(--hover)]"
+            title="Hidden workspaces"
+          >
+            <FolderArchive size={14} />
+            <span className="mono">{closedTabsCount}</span>
+          </button>
+        )}
         {closedCount > 0 && (
           <button
             onClick={toggleClosedSessions}

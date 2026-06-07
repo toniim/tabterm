@@ -3,13 +3,16 @@ import type { AiMessage, ClientMessage, Entity, ServerMessage } from "../shared/
 import {
   applyLayout,
   closeSession,
+  closeTab,
   createGroup,
   createSession,
   createTab,
   loadState,
   purgeSession,
+  purgeTab,
   renameEntity,
   reopenSession,
+  reopenTab,
   setTabCwd,
   toggleGroup,
   upsertNote,
@@ -112,6 +115,32 @@ export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
     case "tab:setCwd": {
       const updated = setTabCwd(msg.tabId, msg.cwd);
       if (updated) broadcast(setPatch("primaryTab", updated));
+      break;
+    }
+    case "tab:close": {
+      const result = closeTab(msg.tabId);
+      if (!result) break;
+      // Stop every shell in the hidden workspace so we don't leak processes.
+      for (const sid of result.sessionIds) kill(sid);
+      broadcast(setPatch("primaryTab", result.tab));
+      break;
+    }
+    case "tab:reopen": {
+      const result = reopenTab(msg.tabId);
+      if (!result) break;
+      // Respawn shells for sessions that were open at the time we hid the tab.
+      for (const sid of result.sessionIds) void ensure(sid);
+      broadcast(setPatch("primaryTab", result.tab));
+      break;
+    }
+    case "tab:purge": {
+      const result = purgeTab(msg.tabId);
+      if (!result) break;
+      for (const sid of result.sessionIds) {
+        kill(sid);
+        broadcast({ type: "patch", entity: "session", op: "delete", id: sid });
+      }
+      broadcast({ type: "patch", entity: "primaryTab", op: "delete", id: msg.tabId });
       break;
     }
     case "rename": {

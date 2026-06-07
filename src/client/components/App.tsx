@@ -2,6 +2,7 @@ import { RotateCcw } from "lucide-react";
 import { useStore } from "../store.ts";
 import { sendMessage } from "../ws.ts";
 import { ClosedSessionsModal } from "./ClosedSessionsModal.tsx";
+import { ClosedTabsModal } from "./ClosedTabsModal.tsx";
 import { Header } from "./Header.tsx";
 import { PrimaryTabs } from "./PrimaryTabs.tsx";
 import { RightPanel } from "./RightPanel.tsx";
@@ -48,6 +49,7 @@ export function App() {
       </div>
       <StatusBar />
       <ClosedSessionsModal />
+      <ClosedTabsModal />
     </div>
   );
 }

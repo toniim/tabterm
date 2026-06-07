@@ -24,6 +24,7 @@ interface StoreState extends AppState {
   theme: Theme;
   showNotes: boolean;
   showClosedSessions: boolean;
+  showClosedTabs: boolean;
   termTheme: string;
 
   setStatus: (s: ConnStatus) => void;
@@ -35,6 +36,7 @@ interface StoreState extends AppState {
   toggleTheme: () => void;
   toggleNotes: () => void;
   toggleClosedSessions: () => void;
+  toggleClosedTabs: () => void;
   setTermTheme: (name: string) => void;
 }
 
@@ -50,6 +52,7 @@ export const useStore = create<StoreState>((set, get) => ({
   theme: getInitialTheme(),
   showNotes: true,
   showClosedSessions: false,
+  showClosedTabs: false,
   termTheme: "Slate Standard",
 
   setStatus: (status) => set({ status }),
@@ -66,6 +69,7 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   toggleNotes: () => set({ showNotes: !get().showNotes }),
   toggleClosedSessions: () => set({ showClosedSessions: !get().showClosedSessions }),
+  toggleClosedTabs: () => set({ showClosedTabs: !get().showClosedTabs }),
   setTermTheme: (termTheme) => set({ termTheme }),
 
   applyServerMessage: (msg) => {
@@ -81,9 +85,9 @@ export const useStore = create<StoreState>((set, get) => ({
 
     if (msg.type === "init") {
       const { state } = msg;
-      const firstTab = Object.values(state.primaryTabs).sort(
-        (a, b) => a.position - b.position,
-      )[0];
+      const firstTab = Object.values(state.primaryTabs)
+        .filter((t) => t.closedAt == null)
+        .sort((a, b) => a.position - b.position)[0];
       set({
         ...state,
         activePrimaryTabId: get().activePrimaryTabId ?? firstTab?.id ?? null,
@@ -102,13 +106,52 @@ export const useStore = create<StoreState>((set, get) => ({
           get().activeSessionId === msg.id ? null : get().activeSessionId;
         set({ sessions, notes, activeSessionId });
       }
+      if (msg.entity === "primaryTab") {
+        const primaryTabs = { ...get().primaryTabs };
+        delete primaryTabs[msg.id];
+        // Drop sessions/notes/order belonging to the purged workspace too —
+        // the server sends individual session-delete patches but order is
+        // tab-keyed and we own that cleanup client-side.
+        const sessions = { ...get().sessions };
+        const notes = { ...get().notes };
+        for (const sid of Object.keys(sessions)) {
+          if (sessions[sid].primaryTabId === msg.id) {
+            delete sessions[sid];
+            delete notes[sid];
+          }
+        }
+        const order = { ...get().order };
+        delete order[msg.id];
+        let activePrimaryTabId = get().activePrimaryTabId;
+        let activeSessionId = get().activeSessionId;
+        if (activePrimaryTabId === msg.id) {
+          const fallback = Object.values(primaryTabs)
+            .filter((t) => t.closedAt == null)
+            .sort((a, b) => a.position - b.position)[0];
+          activePrimaryTabId = fallback?.id ?? null;
+          activeSessionId = null;
+        }
+        set({ primaryTabs, sessions, notes, order, activePrimaryTabId, activeSessionId });
+      }
       return;
     }
 
     switch (msg.entity) {
       case "primaryTab": {
         const t = msg.data as PrimaryTab;
-        set({ primaryTabs: { ...get().primaryTabs, [t.id]: t } });
+        const primaryTabs = { ...get().primaryTabs, [t.id]: t };
+        // If the user just hid the workspace they were on, jump to the first
+        // remaining open one so they don't end up staring at an empty view.
+        let activePrimaryTabId = get().activePrimaryTabId;
+        let activeSessionId = get().activeSessionId;
+        if (t.closedAt != null && activePrimaryTabId === t.id) {
+          const fallback = Object.values(primaryTabs)
+            .filter((other) => other.closedAt == null)
+            .sort((a, b) => a.position - b.position)[0];
+          activePrimaryTabId = fallback?.id ?? null;
+          activeSessionId = null;
+        }
+        set({ primaryTabs, activePrimaryTabId, activeSessionId });
         break;
       }
       case "group": {

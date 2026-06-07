@@ -22,7 +22,8 @@ db.exec(`
     id TEXT PRIMARY KEY,
     label TEXT NOT NULL,
     position INTEGER NOT NULL,
-    cwd TEXT NOT NULL DEFAULT ''
+    cwd TEXT NOT NULL DEFAULT '',
+    closed_at INTEGER
   );
 
   CREATE TABLE IF NOT EXISTS groups (
@@ -82,6 +83,9 @@ const primaryTabCols = db
 if (!primaryTabCols.includes("cwd")) {
   db.exec("ALTER TABLE primary_tabs ADD COLUMN cwd TEXT NOT NULL DEFAULT ''");
 }
+if (!primaryTabCols.includes("closed_at")) {
+  db.exec("ALTER TABLE primary_tabs ADD COLUMN closed_at INTEGER");
+}
 
 // Migrate the old multi-row notes schema (id, position) to one row per session,
 // collapsing a session's notes into a single record in position order.
@@ -107,7 +111,10 @@ if (noteCols.includes("position")) {
 
 // ---- row mappers -------------------------------------------------------------
 
-interface PrimaryTabRow { id: string; label: string; position: number; cwd: string }
+interface PrimaryTabRow {
+  id: string; label: string; position: number; cwd: string;
+  closed_at: number | null;
+}
 interface GroupRow {
   id: string; primary_tab_id: string; label: string; color: string;
   is_open: number; position: number;
@@ -123,7 +130,11 @@ interface NoteRow {
 interface AiRow { role: string; content: string }
 
 const toPrimaryTab = (r: PrimaryTabRow): PrimaryTab => ({
-  id: r.id, label: r.label, position: r.position, cwd: r.cwd ?? "",
+  id: r.id,
+  label: r.label,
+  position: r.position,
+  cwd: r.cwd ?? "",
+  closedAt: r.closed_at,
 });
 const toGroup = (r: GroupRow): Group => ({
   id: r.id,
@@ -180,6 +191,21 @@ const q = {
 
   getPrimaryTab: db.query<PrimaryTabRow, [string]>("SELECT * FROM primary_tabs WHERE id = ?"),
   renamePrimaryTab: db.query("UPDATE primary_tabs SET label = ? WHERE id = ?"),
+  closePrimaryTab: db.query("UPDATE primary_tabs SET closed_at = unixepoch() WHERE id = ?"),
+  reopenPrimaryTab: db.query("UPDATE primary_tabs SET closed_at = NULL WHERE id = ?"),
+  deletePrimaryTab: db.query("DELETE FROM primary_tabs WHERE id = ?"),
+  tabSessionIds: db.query<{ id: string }, [string]>(
+    "SELECT id FROM sessions WHERE primary_tab_id = ?",
+  ),
+  deleteTabSessions: db.query("DELETE FROM sessions WHERE primary_tab_id = ?"),
+  deleteTabGroups: db.query("DELETE FROM groups WHERE primary_tab_id = ?"),
+  deleteTabOrder: db.query("DELETE FROM sidebar_order WHERE primary_tab_id = ?"),
+  deleteTabNotes: db.query(
+    "DELETE FROM notes WHERE session_id IN (SELECT id FROM sessions WHERE primary_tab_id = ?)",
+  ),
+  deleteTabAi: db.query(
+    "DELETE FROM ai_history WHERE session_id IN (SELECT id FROM sessions WHERE primary_tab_id = ?)",
+  ),
   renameGroup: db.query("UPDATE groups SET label = ? WHERE id = ?"),
   renameSession: db.query("UPDATE sessions SET label = ? WHERE id = ?"),
   deleteSessionNotes: db.query("DELETE FROM notes WHERE session_id = ?"),
@@ -270,6 +296,49 @@ export function setTabCwd(tabId: string, cwd: string): PrimaryTab | null {
   if (!q.getPrimaryTab.get(tabId)) return null;
   q.setPrimaryTabCwd.run(cwd, tabId);
   return toPrimaryTab(q.getPrimaryTab.get(tabId)!);
+}
+
+// Soft-close a whole workspace: hide it from the tab bar. Sessions inside keep
+// their rows untouched; the WS layer kills their shells so we don't leak
+// processes for a workspace nobody can see.
+export function closeTab(
+  tabId: string,
+): { tab: PrimaryTab; sessionIds: string[] } | null {
+  if (!q.getPrimaryTab.get(tabId)) return null;
+  q.closePrimaryTab.run(tabId);
+  const sessionIds = q.tabSessionIds.all(tabId).map((r) => r.id);
+  return { tab: toPrimaryTab(q.getPrimaryTab.get(tabId)!), sessionIds };
+}
+
+// Reopen a hidden workspace. Sessions reappear in whatever state they were in
+// (open ones still open, closed ones still closed); the WS layer respawns
+// shells for the still-open ones.
+export function reopenTab(
+  tabId: string,
+): { tab: PrimaryTab; sessionIds: string[] } | null {
+  if (!q.getPrimaryTab.get(tabId)) return null;
+  q.reopenPrimaryTab.run(tabId);
+  const sessionIds = q.tabSessionIds
+    .all(tabId)
+    .map((r) => r.id)
+    .filter((id) => q.getSession.get(id)?.closed_at == null);
+  return { tab: toPrimaryTab(q.getPrimaryTab.get(tabId)!), sessionIds };
+}
+
+// Permanent: drop the workspace row plus every group, session, note, AI turn,
+// and sidebar order belonging to it.
+export function purgeTab(
+  tabId: string,
+): { sessionIds: string[] } | null {
+  if (!q.getPrimaryTab.get(tabId)) return null;
+  const sessionIds = q.tabSessionIds.all(tabId).map((r) => r.id);
+  q.deleteTabAi.run(tabId);
+  q.deleteTabNotes.run(tabId);
+  q.deleteTabSessions.run(tabId);
+  q.deleteTabGroups.run(tabId);
+  q.deleteTabOrder.run(tabId);
+  q.deletePrimaryTab.run(tabId);
+  return { sessionIds };
 }
 
 export function createGroup(
