@@ -10,6 +10,7 @@ import {
   purgeSession,
   renameEntity,
   reopenSession,
+  setTabCwd,
   toggleGroup,
   upsertNote,
 } from "./db.ts";
@@ -105,7 +106,12 @@ export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
       break;
     }
     case "tab:create": {
-      broadcast(setPatch("primaryTab", createTab(msg.label, msg.id)));
+      broadcast(setPatch("primaryTab", createTab(msg.label, msg.cwd ?? "", msg.id)));
+      break;
+    }
+    case "tab:setCwd": {
+      const updated = setTabCwd(msg.tabId, msg.cwd);
+      if (updated) broadcast(setPatch("primaryTab", updated));
       break;
     }
     case "rename": {

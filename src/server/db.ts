@@ -21,7 +21,8 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS primary_tabs (
     id TEXT PRIMARY KEY,
     label TEXT NOT NULL,
-    position INTEGER NOT NULL
+    position INTEGER NOT NULL,
+    cwd TEXT NOT NULL DEFAULT ''
   );
 
   CREATE TABLE IF NOT EXISTS groups (
@@ -73,6 +74,15 @@ if (!sessionCols.includes("closed_at")) {
   db.exec("ALTER TABLE sessions ADD COLUMN closed_at INTEGER");
 }
 
+// Add primary_tabs.cwd to pre-existing databases (empty string = "$HOME").
+const primaryTabCols = db
+  .query<{ name: string }, []>("PRAGMA table_info(primary_tabs)")
+  .all()
+  .map((c) => c.name);
+if (!primaryTabCols.includes("cwd")) {
+  db.exec("ALTER TABLE primary_tabs ADD COLUMN cwd TEXT NOT NULL DEFAULT ''");
+}
+
 // Migrate the old multi-row notes schema (id, position) to one row per session,
 // collapsing a session's notes into a single record in position order.
 const noteCols = db
@@ -97,7 +107,7 @@ if (noteCols.includes("position")) {
 
 // ---- row mappers -------------------------------------------------------------
 
-interface PrimaryTabRow { id: string; label: string; position: number }
+interface PrimaryTabRow { id: string; label: string; position: number; cwd: string }
 interface GroupRow {
   id: string; primary_tab_id: string; label: string; color: string;
   is_open: number; position: number;
@@ -113,7 +123,7 @@ interface NoteRow {
 interface AiRow { role: string; content: string }
 
 const toPrimaryTab = (r: PrimaryTabRow): PrimaryTab => ({
-  id: r.id, label: r.label, position: r.position,
+  id: r.id, label: r.label, position: r.position, cwd: r.cwd ?? "",
 });
 const toGroup = (r: GroupRow): Group => ({
   id: r.id,
@@ -147,7 +157,10 @@ const q = {
   allSessions: db.query<SessionRow, []>("SELECT * FROM sessions"),
   allOrders: db.query<OrderRow, []>("SELECT * FROM sidebar_order"),
 
-  insertPrimaryTab: db.query("INSERT INTO primary_tabs (id, label, position) VALUES (?, ?, ?)"),
+  insertPrimaryTab: db.query(
+    "INSERT INTO primary_tabs (id, label, position, cwd) VALUES (?, ?, ?, ?)",
+  ),
+  setPrimaryTabCwd: db.query("UPDATE primary_tabs SET cwd = ? WHERE id = ?"),
   maxTabPos: db.query<{ p: number | null }, []>("SELECT MAX(position) AS p FROM primary_tabs"),
   insertGroup: db.query(
     "INSERT INTO groups (id, primary_tab_id, label, color, is_open, position) VALUES (?, ?, ?, ?, 1, ?)",
@@ -156,7 +169,7 @@ const q = {
   toggleGroup: db.query("UPDATE groups SET is_open = 1 - is_open WHERE id = ?"),
 
   insertSession: db.query(
-    "INSERT INTO sessions (id, primary_tab_id, group_id, label, cwd, gotty_port, position) VALUES (?, ?, ?, ?, '~', NULL, ?)",
+    "INSERT INTO sessions (id, primary_tab_id, group_id, label, cwd, gotty_port, position) VALUES (?, ?, ?, ?, ?, NULL, ?)",
   ),
   getSession: db.query<SessionRow, [string]>("SELECT * FROM sessions WHERE id = ?"),
   setSessionPort: db.query("UPDATE sessions SET gotty_port = ? WHERE id = ?"),
@@ -235,18 +248,28 @@ function writeOrder(primaryTabId: string, order: string[]): void {
 export function seedIfEmpty(): void {
   if (q.allPrimaryTabs.all().length > 0) return;
   const id = randomUUID();
-  q.insertPrimaryTab.run(id, "workspace", 0);
+  q.insertPrimaryTab.run(id, "workspace", 0, "");
   writeOrder(id, []);
 }
 
 // ---- mutations ---------------------------------------------------------------
 // Each returns the data needed to broadcast minimal patches to clients.
 
-export function createTab(label: string, id: string = randomUUID()): PrimaryTab {
+export function createTab(
+  label: string,
+  cwd: string = "",
+  id: string = randomUUID(),
+): PrimaryTab {
   const position = (q.maxTabPos.get()?.p ?? -1) + 1;
-  q.insertPrimaryTab.run(id, label, position);
+  q.insertPrimaryTab.run(id, label, position, cwd);
   q.upsertOrder.run(id, "[]");
   return toPrimaryTab(q.getPrimaryTab.get(id)!);
+}
+
+export function setTabCwd(tabId: string, cwd: string): PrimaryTab | null {
+  if (!q.getPrimaryTab.get(tabId)) return null;
+  q.setPrimaryTabCwd.run(cwd, tabId);
+  return toPrimaryTab(q.getPrimaryTab.get(tabId)!);
 }
 
 export function createGroup(
@@ -276,7 +299,11 @@ export function createSession(
   id: string = randomUUID(),
 ): { session: Session; order: string[] | null } {
   const position = (q.maxSessionPos.get(primaryTabId)?.p ?? -1) + 1;
-  q.insertSession.run(id, primaryTabId, groupId ?? null, label, position);
+  // New sessions inherit the workspace's default cwd. Legacy tabs without a cwd
+  // column default to "" — gotty.ts treats that as "start in $HOME".
+  const parent = q.getPrimaryTab.get(primaryTabId);
+  const cwd = parent?.cwd ?? "";
+  q.insertSession.run(id, primaryTabId, groupId ?? null, label, cwd, position);
   // Ungrouped sessions live in the flat sidebar order; grouped sessions are
   // rendered as children of their group, ordered by `position`.
   let order: string[] | null = null;

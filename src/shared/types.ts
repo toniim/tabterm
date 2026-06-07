@@ -16,6 +16,9 @@ export interface PrimaryTab {
   id: string;
   label: string;
   position: number;
+  // Default working directory for new sessions created under this workspace.
+  // Empty string = "$HOME". May contain "~" / "~/..." — resolved server-side.
+  cwd: string;
 }
 
 export interface Group {
@@ -99,7 +102,8 @@ export type ClientMessage =
   | { type: "session:purge"; sessionId: string }
   | { type: "group:create"; primaryTabId: string; label: string; color: GroupColor }
   | { type: "group:toggle"; groupId: string }
-  | { type: "tab:create"; label: string; id?: string }
+  | { type: "tab:create"; label: string; cwd?: string; id?: string }
+  | { type: "tab:setCwd"; tabId: string; cwd: string }
   | { type: "rename"; entity: "primaryTab" | "group" | "session"; id: string; label: string }
   // Full desired sidebar layout for a tab after a drag. `order` is the flat
   // top-level list of `groupId | sessionId`; `groups` maps each groupId to its

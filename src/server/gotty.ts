@@ -1,6 +1,8 @@
 import { spawn, type Subprocess } from "bun";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
-import { allSessionIds, setSessionPort } from "./db.ts";
+import { allSessionIds, sessionMeta, setSessionPort } from "./db.ts";
 
 // One GoTTY process per session. GoTTY itself forks a fresh shell for EACH
 // WebSocket connection, so two browsers on the same session get independent
@@ -17,6 +19,19 @@ function shellCommand(): string[] {
   const init = process.env.SESSION_INIT;
   if (init === "off") return [process.env.SHELL || "bash"];
   return ["bash", "--rcfile", init || BUNDLED_INIT, "-i"];
+}
+
+// Resolve a stored cwd ("", "~", "~/foo", or absolute) to a real directory.
+// Returns undefined when the value is empty, doesn't exist, or can't be resolved
+// — callers fall back to the server's cwd in that case.
+function resolveCwd(stored: string | undefined): string | undefined {
+  if (!stored) return undefined;
+  const home = homedir();
+  let path = stored;
+  if (path === "~") path = home;
+  else if (path.startsWith("~/")) path = join(home, path.slice(2));
+  if (!existsSync(path)) return undefined;
+  return path;
 }
 
 interface GoTTYProcess {
@@ -54,6 +69,11 @@ export async function ensure(sessionId: string): Promise<number> {
 
   const port = allocatePort();
   const cmd = shellCommand();
+  const meta = sessionMeta(sessionId);
+  const cwd = resolveCwd(meta?.cwd);
+  if (meta?.cwd && !cwd) {
+    console.warn(`[gotty] session ${sessionId} cwd "${meta.cwd}" not found, falling back`);
+  }
   const proc = spawn(
     [
       GOTTY_BIN,
@@ -63,14 +83,14 @@ export async function ensure(sessionId: string): Promise<number> {
       "--ws-origin", ".*",
       ...cmd,
     ],
-    { stdout: "ignore", stderr: "ignore" },
+    { stdout: "ignore", stderr: "ignore", ...(cwd ? { cwd } : {}) },
   );
   procs.set(sessionId, { proc, port });
   setSessionPort(sessionId, port);
 
   const ready = await waitForPort(port);
   if (!ready) console.warn(`[gotty] session ${sessionId} not listening on :${port} in time`);
-  else console.log(`[gotty] session ${sessionId} -> ${cmd.join(" ")} on :${port}`);
+  else console.log(`[gotty] session ${sessionId} -> ${cmd.join(" ")} on :${port}${cwd ? ` (cwd=${cwd})` : ""}`);
   return port;
 }
 
