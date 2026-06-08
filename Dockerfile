@@ -30,7 +30,8 @@ RUN bun run build \
 #   - tabterm  : the compiled binary (SPA + gotty + session-init embedded)
 #   - bun      : the runtime/toolchain
 #   - gotty    : standalone PTY backend (also embedded in the binary)
-#   - claude   : Claude Code CLI (launched for "Claude" sessions)
+# Claude Code CLI is installed on first launch by the entrypoint script so the
+# image stays slim; mount a volume at ~/.local to cache the install across runs.
 ###############################################################################
 FROM debian:bookworm-slim AS runtime
 
@@ -61,10 +62,10 @@ RUN useradd --create-home --shell /bin/bash tabterm
 USER tabterm
 WORKDIR /home/tabterm
 
-# Claude Code CLI — official native installer, lands in ~/.local/bin.
+# Claude Code CLI is installed on first container launch (see entrypoint) so
+# the image stays slim and the install can be cached across runs via a volume
+# mounted at ~/.local. The binary lands in ~/.local/bin.
 ENV PATH=/home/tabterm/.local/bin:$PATH
-RUN curl -fsSL https://claude.ai/install.sh | bash \
- && claude --version
 
 # tabterm serves HTTP + WebSocket on this port (override via ~/.config/tabterm.json).
 EXPOSE 3000
@@ -72,8 +73,9 @@ EXPOSE 3000
 # Pre-create the data dirs owned by `tabterm` so the volumes below inherit the
 # right ownership (otherwise Docker creates the mountpoints as root and the
 # server can't write the SQLite db). ~/.config holds config + db; ~/.cache holds
-# per-session claude markers.
-RUN mkdir -p /home/tabterm/.config /home/tabterm/.cache
-VOLUME ["/home/tabterm/.config", "/home/tabterm/.cache"]
+# per-session claude markers; ~/.local holds the Claude Code install.
+RUN mkdir -p /home/tabterm/.config /home/tabterm/.cache /home/tabterm/.local/bin
+VOLUME ["/home/tabterm/.config", "/home/tabterm/.cache", "/home/tabterm/.local"]
 
-ENTRYPOINT ["tabterm"]
+COPY --chmod=755 scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
