@@ -1,0 +1,8 @@
+# Keep the build context lean and avoid clobbering image-side artifacts with
+# host-side ones. These are regenerated inside the builder stage.
+.git
+node_modules
+dist
+data
+bin/gotty
+*.log
