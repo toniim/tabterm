@@ -25,6 +25,7 @@ interface StoreState extends AppState {
   showNotes: boolean;
   showClosedSessions: boolean;
   showClosedTabs: boolean;
+  showCommandPalette: boolean;
   termTheme: string;
 
   setStatus: (s: ConnStatus) => void;
@@ -36,6 +37,7 @@ interface StoreState extends AppState {
   toggleNotes: () => void;
   toggleClosedSessions: () => void;
   toggleClosedTabs: () => void;
+  toggleCommandPalette: () => void;
   setTermTheme: (name: string) => void;
 }
 
@@ -63,6 +65,7 @@ export const useStore = create<StoreState>((set, get) => ({
   showNotes: true,
   showClosedSessions: false,
   showClosedTabs: false,
+  showCommandPalette: false,
   termTheme: "Slate Standard",
 
   setStatus: (status) => set({ status }),
@@ -84,6 +87,7 @@ export const useStore = create<StoreState>((set, get) => ({
   toggleNotes: () => set({ showNotes: !get().showNotes }),
   toggleClosedSessions: () => set({ showClosedSessions: !get().showClosedSessions }),
   toggleClosedTabs: () => set({ showClosedTabs: !get().showClosedTabs }),
+  toggleCommandPalette: () => set({ showCommandPalette: !get().showCommandPalette }),
   setTermTheme: (termTheme) => set({ termTheme }),
 
   applyServerMessage: (msg) => {

@@ -112,10 +112,11 @@ export function Terminal({ sessionId }: { sessionId: string }) {
         return false;
       }
 
-      // Cmd+K → wipe viewport + scrollback, matching iTerm2 / Terminal.app's "Clear
-      // Buffer". Client-side only — the shell's screen state is untouched, so any
-      // running TUI (vim, htop, claude) repaints on its next refresh.
-      if (ev.key === "k" && ev.metaKey && !ev.ctrlKey && !ev.altKey) {
+      // Cmd+Shift+K → wipe viewport + scrollback. Plain Cmd+K is reserved for the
+      // app-wide command palette; this matches iTerm2's "Clear Scrollback" chord.
+      // Client-side only — the shell's screen state is untouched, so any running
+      // TUI (vim, htop, claude) repaints on its next refresh.
+      if (ev.key === "K" && ev.metaKey && ev.shiftKey && !ev.ctrlKey && !ev.altKey) {
         ev.preventDefault();
         term.clear();
         return false;
