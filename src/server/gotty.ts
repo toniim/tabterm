@@ -1,5 +1,12 @@
 import { spawn, type Subprocess } from "bun";
-import { existsSync, mkdirSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { SessionKind } from "../shared/types.ts";
@@ -76,10 +83,73 @@ interface GoTTYProcess {
 const procs = new Map<string, GoTTYProcess>();
 let nextPort = BASE_PORT;
 
-function allocatePort(): number {
+// PID files let us SIGKILL orphan gotty children left behind by an ungraceful
+// tabterm exit. Without this, an orphan keeps holding its old port — on
+// restart, the new gotty fails to bind silently, waitForPort still sees the
+// orphan answer, and the session ends up wired to a shell that was launched
+// with another session's cwd/env.
+function pidFile(sessionId: string): string {
+  return join(MARKER_DIR, `${sessionId}.gotty.pid`);
+}
+
+function writePidFile(sessionId: string, pid: number): void {
+  mkdirSync(MARKER_DIR, { recursive: true });
+  writeFileSync(pidFile(sessionId), String(pid));
+}
+
+function removePidFile(sessionId: string): void {
+  try { unlinkSync(pidFile(sessionId)); } catch {}
+}
+
+// Best-effort: kill any gotty children left behind by a previous tabterm crash.
+// Called once at startup, before respawnAll. Safe to call when nothing is stale
+// (no dir, no files) — it just returns.
+export function reapOrphans(): void {
+  let files: string[];
+  try {
+    files = readdirSync(MARKER_DIR);
+  } catch {
+    return;
+  }
+  const pidFiles = files.filter((f) => f.endsWith(".gotty.pid"));
+  let killed = 0;
+  for (const f of pidFiles) {
+    const full = join(MARKER_DIR, f);
+    try {
+      const pid = Number(readFileSync(full, "utf8").trim());
+      if (Number.isFinite(pid) && pid > 0) {
+        try {
+          process.kill(pid, "SIGKILL");
+          killed++;
+        } catch {
+          // ESRCH (already dead) or EPERM — nothing useful to do; the unlink
+          // below still clears the stale file.
+        }
+      }
+    } catch {
+      // unreadable file — fall through to unlink
+    }
+    try { unlinkSync(full); } catch {}
+  }
+  if (killed > 0) console.log(`[gotty] reaped ${killed} orphan gotty process(es)`);
+}
+
+// Skip ports the OS already has bound (orphan we couldn't reap, an unrelated
+// process, etc.) so spawn() doesn't fight a doomed bind. Cap at 500 attempts
+// so a fully-saturated port range fails loudly instead of looping forever.
+async function allocatePort(): Promise<number> {
   const used = new Set([...procs.values()].map((p) => p.port));
-  while (used.has(nextPort)) nextPort++;
-  return nextPort++;
+  for (let i = 0; i < 500; i++) {
+    if (used.has(nextPort)) { nextPort++; continue; }
+    if (await isAlive(nextPort)) {
+      console.warn(`[gotty] port ${nextPort} already in use; skipping`);
+      used.add(nextPort);
+      nextPort++;
+      continue;
+    }
+    return nextPort++;
+  }
+  throw new Error(`[gotty] no free port available in range starting at ${BASE_PORT}`);
 }
 
 async function waitForPort(port: number, timeoutMs = 3000): Promise<boolean> {
@@ -97,11 +167,12 @@ async function waitForPort(port: number, timeoutMs = 3000): Promise<boolean> {
 }
 
 // Spawn a GoTTY process for a session (idempotent). Returns its port.
+// Retries on the next port if the spawned gotty dies before binding (e.g.,
+// another process slipped onto the port between the probe and the spawn).
 export async function ensure(sessionId: string): Promise<number> {
   const existing = procs.get(sessionId);
   if (existing && !existing.proc.killed) return existing.port;
 
-  const port = allocatePort();
   const [bin, cmd] = await Promise.all([gottyBin(), shellCommand()]);
   const meta = sessionMeta(sessionId);
   const cwd = resolveCwd(meta?.cwd);
@@ -109,29 +180,49 @@ export async function ensure(sessionId: string): Promise<number> {
     console.warn(`[gotty] session ${sessionId} cwd "${meta.cwd}" not found, falling back`);
   }
   const extraEnv = sessionEnv(sessionId, meta?.kind ?? "shell");
-  const proc = spawn(
-    [
-      bin,
-      "--port", String(port),
-      "--address", "127.0.0.1",
-      "--permit-write",
-      "--ws-origin", ".*",
-      ...cmd,
-    ],
-    {
-      stdout: "ignore",
-      stderr: "ignore",
-      ...(cwd ? { cwd } : {}),
-      env: { ...process.env, ...extraEnv } as Record<string, string>,
-    },
-  );
-  procs.set(sessionId, { proc, port });
-  setSessionPort(sessionId, port);
 
-  const ready = await waitForPort(port);
-  if (!ready) console.warn(`[gotty] session ${sessionId} not listening on :${port} in time`);
-  else console.log(`[gotty] session ${sessionId} -> ${cmd.join(" ")} on :${port}${cwd ? ` (cwd=${cwd})` : ""}`);
-  return port;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const port = await allocatePort();
+    const proc = spawn(
+      [
+        bin,
+        "--port", String(port),
+        "--address", "127.0.0.1",
+        "--permit-write",
+        "--ws-origin", ".*",
+        ...cmd,
+      ],
+      {
+        stdout: "ignore",
+        stderr: "ignore",
+        ...(cwd ? { cwd } : {}),
+        env: { ...process.env, ...extraEnv } as Record<string, string>,
+      },
+    );
+
+    // Race readiness against the child exiting — if gotty dies during startup
+    // (port collision, bad binary), waitForPort would otherwise be fooled by
+    // an orphan answering on the same port.
+    const outcome = await Promise.race<"ready" | "exited" | "timeout">([
+      waitForPort(port).then((ok) => (ok ? "ready" : "timeout")),
+      proc.exited.then(() => "exited" as const),
+    ]);
+
+    if (outcome === "ready" && proc.exitCode === null) {
+      procs.set(sessionId, { proc, port });
+      setSessionPort(sessionId, port);
+      if (proc.pid) writePidFile(sessionId, proc.pid);
+      console.log(`[gotty] session ${sessionId} -> ${cmd.join(" ")} on :${port}${cwd ? ` (cwd=${cwd})` : ""}`);
+      return port;
+    }
+
+    try { proc.kill(); } catch {}
+    console.warn(
+      `[gotty] session ${sessionId} spawn ${outcome} on :${port} (attempt ${attempt}/5); retrying on next port`,
+    );
+  }
+
+  throw new Error(`[gotty] session ${sessionId} failed to bind a port after 5 attempts`);
 }
 
 export function portOf(sessionId: string): number | undefined {
@@ -144,6 +235,7 @@ export function kill(sessionId: string): void {
   entry.proc.kill();
   procs.delete(sessionId);
   setSessionPort(sessionId, null);
+  removePidFile(sessionId);
   console.log(`[gotty] killed session ${sessionId}`);
 }
 

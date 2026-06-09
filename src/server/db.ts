@@ -165,7 +165,7 @@ const toNote = (r: NoteRow): Note => ({
 const q = {
   allPrimaryTabs: db.query<PrimaryTabRow, []>("SELECT * FROM primary_tabs ORDER BY position"),
   allGroups: db.query<GroupRow, []>("SELECT * FROM groups"),
-  allSessions: db.query<SessionRow, []>("SELECT * FROM sessions"),
+  allSessions: db.query<SessionRow, []>("SELECT * FROM sessions ORDER BY id"),
   allOrders: db.query<OrderRow, []>("SELECT * FROM sidebar_order"),
 
   insertPrimaryTab: db.query(

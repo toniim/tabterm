@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { config } from "./config.ts";
 import { seedIfEmpty } from "./db.ts";
 import { getSpaFile, hasEmbeddedSpa } from "./embedded.ts";
-import { killAll, respawnAll, startHealthMonitor } from "./gotty.ts";
+import { killAll, reapOrphans, respawnAll, startHealthMonitor } from "./gotty.ts";
 import * as proxy from "./proxy.ts";
 import { handleApi, handleUpload } from "./routes.ts";
 import * as appws from "./ws.ts";
@@ -22,6 +22,7 @@ type AppData = { kind: "app" };
 type SocketData = AppData | proxy.ProxyData;
 
 seedIfEmpty();
+reapOrphans(); // kill any gotty children left behind by a previous crash
 await respawnAll(); // auto-respawn GoTTY for persisted sessions on restart
 startHealthMonitor(); // ping GoTTY processes every 30s, respawn if unresponsive
 
