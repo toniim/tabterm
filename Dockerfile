@@ -28,8 +28,6 @@ RUN bun run build \
 ###############################################################################
 # Stage 2 — Runtime image with everything a user needs:
 #   - tabterm  : the compiled binary (SPA + gotty + session-init embedded)
-#   - bun      : the runtime/toolchain
-#   - gotty    : standalone PTY backend (also embedded in the binary)
 # Claude Code CLI is installed on first launch by the entrypoint script so the
 # image stays slim; mount a volume at ~/.local to cache the install across runs.
 ###############################################################################
@@ -47,12 +45,6 @@ RUN apt-get update \
       openssh-client \
       procps \
  && rm -rf /var/lib/apt/lists/*
-
-# Bun — copied straight from the official image (single static binary).
-COPY --from=oven/bun:1 /usr/local/bin/bun /usr/local/bin/bun
-
-# GoTTY — the same binary the build downloaded, exposed standalone on PATH.
-COPY --from=builder /src/bin/gotty /usr/local/bin/gotty
 
 # tabterm — the self-contained compiled binary.
 COPY --from=builder /src/dist/tabterm /usr/local/bin/tabterm
