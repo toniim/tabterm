@@ -88,8 +88,12 @@ export function Sidebar() {
     drag.current = null;
     setOver(null);
   };
-  const allowDrop = (key: string) => (e: React.DragEvent) => {
+  // `stop` is set for rows nested inside a group: without it the dragover
+  // bubbles to the group wrapper's own onDragOver, which overwrites `over` and
+  // suppresses the per-row insertion bar, making in-group reordering unusable.
+  const allowDrop = (key: string, stop = false) => (e: React.DragEvent) => {
     e.preventDefault();
+    if (stop) e.stopPropagation();
     if (over !== key) setOver(key);
   };
   const dropTop = (beforeId: string | null) => (e: React.DragEvent) => {
@@ -129,7 +133,7 @@ export function Sidebar() {
         draggable
         onDragStart={onDragStart("session", id)}
         onDragEnd={onDragEnd}
-        onDragOver={allowDrop(overKey)}
+        onDragOver={allowDrop(overKey, true)}
         onDrop={onDrop}
         onClick={() => {
           ensureNotifyPermission();

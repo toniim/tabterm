@@ -112,6 +112,9 @@ export type ClientMessage =
   | { type: "tab:setCwd"; tabId: string; cwd: string }
   | { type: "tab:close"; tabId: string }
   | { type: "tab:reopen"; tabId: string }
+  // New order of the visible primary tabs (left-to-right), by id. The server
+  // reassigns each listed tab's `position` to its index.
+  | { type: "tab:reorder"; order: string[] }
   | { type: "tab:purge"; tabId: string }
   | { type: "rename"; entity: "primaryTab" | "group" | "session"; id: string; label: string }
   // Full desired sidebar layout for a tab after a drag. `order` is the flat

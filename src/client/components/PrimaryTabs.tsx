@@ -1,3 +1,4 @@
+import { useRef, useState } from "react";
 import { Archive, Compass, FolderArchive, Plus, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.ts";
@@ -81,6 +82,37 @@ export function PrimaryTabs() {
     if (label) sendMessage({ type: "tab:create", id: uuid(), label });
   };
 
+  // --- drag/drop reordering of the visible tabs ---
+  const drag = useRef<string | null>(null);
+  // `null` = nothing hovered; a tab id = insert-before that tab; "end" = append.
+  const [over, setOver] = useState<string | null>(null);
+
+  const onDragStart = (id: string) => (e: React.DragEvent) => {
+    drag.current = id;
+    e.dataTransfer.effectAllowed = "move";
+  };
+  const onDragEnd = () => {
+    drag.current = null;
+    setOver(null);
+  };
+  const allowDrop = (key: string) => (e: React.DragEvent) => {
+    e.preventDefault();
+    if (over !== key) setOver(key);
+  };
+  // Drop before `beforeId` (or append when null), then send the new order.
+  const drop = (beforeId: string | null) => (e: React.DragEvent) => {
+    e.preventDefault();
+    const id = drag.current;
+    if (id) {
+      const ids = tabs.map((t) => t.id).filter((x) => x !== id);
+      const idx = beforeId ? ids.indexOf(beforeId) : -1;
+      if (idx === -1) ids.push(id);
+      else ids.splice(idx, 0, id);
+      sendMessage({ type: "tab:reorder", order: ids });
+    }
+    onDragEnd();
+  };
+
   return (
     <div className="flex items-center gap-1 px-3 h-12 bg-[var(--panel)] border-b border-[var(--border)] select-none">
       <span className="w-9 h-9 grid place-items-center text-[var(--accent-soft)]">
@@ -91,7 +123,14 @@ export function PrimaryTabs() {
         return (
           <div
             key={t.id}
-            className={`group relative flex items-center h-12 max-w-[200px] ${
+            draggable
+            onDragStart={onDragStart(t.id)}
+            onDragEnd={onDragEnd}
+            onDragOver={allowDrop(t.id)}
+            onDrop={drop(t.id)}
+            className={`group relative flex items-center h-12 max-w-[200px] border-l-2 ${
+              over === t.id ? "border-[var(--accent)]" : "border-transparent"
+            } ${
               active ? "text-[var(--text)]" : "text-[var(--muted)] hover:text-[var(--text)]"
             }`}
           >
@@ -129,6 +168,14 @@ export function PrimaryTabs() {
           </div>
         );
       })}
+      {/* Trailing drop zone: dropping here moves a tab to the end. */}
+      <div
+        onDragOver={allowDrop("end")}
+        onDrop={drop(null)}
+        className={`self-stretch w-2 border-l-2 ${
+          over === "end" ? "border-[var(--accent)]" : "border-transparent"
+        }`}
+      />
       <button
         onClick={addTab}
         className="w-7 h-7 grid place-items-center rounded-full border border-[var(--border-2)] text-[var(--muted)] hover:text-[var(--text)] hover:border-[var(--accent)]"
