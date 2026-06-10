@@ -74,6 +74,13 @@ if (!sessionCols.includes("kind")) {
   db.exec("ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'shell'");
 }
 
+// Rename the legacy "claude" kind to "opus" so existing rows match the default
+// sessionCommands entry. Idempotent: zero rows on a clean DB or a re-run.
+{
+  const renamed = db.run("UPDATE sessions SET kind = 'opus' WHERE kind = 'claude'").changes;
+  if (renamed > 0) console.log(`[db] migrated ${renamed} legacy 'claude' session(s) -> 'opus'`);
+}
+
 // Add primary_tabs.cwd to pre-existing databases (empty string = "$HOME").
 const primaryTabCols = db
   .query<{ name: string }, []>("PRAGMA table_info(primary_tabs)")
@@ -151,7 +158,7 @@ const toSession = (r: SessionRow): Session => ({
   cwd: r.cwd,
   gottyPort: r.gotty_port,
   position: r.position,
-  kind: ((r.kind === "claude" || r.kind === "fable") ? r.kind : "shell") as SessionKind,
+  kind: (r.kind ?? "shell") as SessionKind,
   closedAt: r.closed_at,
 });
 const toNote = (r: NoteRow): Note => ({
@@ -525,6 +532,6 @@ export function sessionMeta(
   return {
     label: r.label,
     cwd: r.cwd,
-    kind: ((r.kind === "claude" || r.kind === "fable") ? r.kind : "shell") as SessionKind,
+    kind: (r.kind ?? "shell") as SessionKind,
   };
 }

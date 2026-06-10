@@ -17,6 +17,7 @@ import {
   toggleGroup,
   upsertNote,
 } from "./db.ts";
+import { config } from "./config.ts";
 import { ensure, kill } from "./gotty.ts";
 import { attachStatuses, clearStatus, setStatusBroadcaster } from "./status.ts";
 
@@ -41,7 +42,11 @@ setStatusBroadcaster((session) => broadcast(setPatch("session", session)));
 
 export function onOpen(ws: ServerWebSocket<unknown>): void {
   pool.add(ws);
-  send(ws, { type: "init", state: attachStatuses(loadState()) });
+  send(ws, {
+    type: "init",
+    state: attachStatuses(loadState()),
+    sessionCommands: config.sessionCommands,
+  });
 }
 
 export function onClose(ws: ServerWebSocket<unknown>): void {

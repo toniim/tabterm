@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { FolderPlus, FolderTree, Plus, Sparkles, X } from "lucide-react";
+import { FolderPlus, FolderTree, Plus, X } from "lucide-react";
 import type { GroupColor, SessionKind } from "../../shared/types.ts";
 import { GROUP_COLORS } from "../../shared/types.ts";
 import { buildTree, intoGroup, toTop, type Tree } from "../layout.ts";
@@ -29,6 +29,7 @@ export function Sidebar() {
   const activeSessionId = useStore((s) => s.activeSessionId);
   const setActiveSession = useStore((s) => s.setActiveSession);
   const requestFocus = useStore((s) => s.requestFocus);
+  const sessionCommands = useStore((s) => s.sessionCommands);
 
   const drag = useRef<Drag | null>(null);
   const grpTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -66,7 +67,8 @@ export function Sidebar() {
   };
   const addSession = (groupId?: string, kind: SessionKind = "shell") => {
     const count = Object.values(sessions).filter((s) => s.primaryTabId === tabId).length;
-    const prefix = kind === "claude" ? "Opus" : kind === "fable" ? "Fable" : "Session";
+    const cmd = sessionCommands.find((c) => c.type === kind);
+    const prefix = cmd ? cmd.label.split(" ")[0] : "Session";
     const label = `${prefix} ${count + 1}`;
     const id = uuid();
     requestFocus(id);
@@ -241,20 +243,16 @@ export function Sidebar() {
         >
           <Plus size={15} /> Session
         </button>
-        <button
-          onClick={() => addSession(undefined, "claude")}
-          className="w-full flex items-center justify-center gap-2 text-sm py-2 rounded-lg border border-[var(--border-2)] text-[var(--text)] hover:bg-[var(--hover)]"
-          title="Launch the configured claude command (claudeCommand in config, default 'claude')"
-        >
-          <Sparkles size={14} className="text-[var(--orange)]" /> Opus session
-        </button>
-        <button
-          onClick={() => addSession(undefined, "fable")}
-          className="w-full flex items-center justify-center gap-2 text-sm py-2 rounded-lg border border-[var(--border-2)] text-[var(--text)] hover:bg-[var(--hover)]"
-          title="Launch ~/bin/fable (fableCommand in config)"
-        >
-          <Sparkles size={14} className="text-violet-400" /> Fable session
-        </button>
+        {sessionCommands.map((cmd) => (
+          <button
+            key={cmd.type}
+            onClick={() => addSession(undefined, cmd.type)}
+            className="w-full flex items-center justify-center gap-2 text-sm py-2 rounded-lg border border-[var(--border-2)] text-[var(--text)] hover:bg-[var(--hover)]"
+            title={`Launch ${cmd.command}`}
+          >
+            <span style={{ color: cmd.color ?? "var(--muted)" }}>{cmd.icon}</span> {cmd.label}
+          </button>
+        ))}
       </div>
     </aside>
   );

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Archive, Layers, Plus, Search, Sparkles, TerminalSquare } from "lucide-react";
+import { Archive, Layers, Plus, Search, TerminalSquare } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import type { PrimaryTab, Session, SessionKind } from "../../shared/types.ts";
+import type { PrimaryTab, Session, SessionCommand, SessionKind } from "../../shared/types.ts";
 import { useStore } from "../store.ts";
 import { uuid } from "../uuid.ts";
 import { sendMessage } from "../ws.ts";
@@ -9,18 +9,20 @@ import { sendMessage } from "../ws.ts";
 type Entry =
   | { kind: "session"; id: string; label: string; session: Session; workspaceLabel: string; inActive: boolean }
   | { kind: "primaryTab"; id: string; label: string; tab: PrimaryTab }
-  | { kind: "action"; id: string; label: string; run: () => void; icon: "plus-shell" | "plus-opus" | "plus-fable" | "archive-sessions" | "archive-tabs" };
+  | { kind: "action"; id: string; label: string; run: () => void; icon: "plus-shell" | "archive-sessions" | "archive-tabs" }
+  | { kind: "action-launch"; id: string; label: string; run: () => void; cmd: SessionCommand };
 
-function iconFor(entry: Entry) {
+function iconFor(entry: Entry, commandsByKind: Record<string, SessionCommand>) {
   if (entry.kind === "session") {
-    if (entry.session.kind === "claude") return <Sparkles size={14} className="text-[var(--orange)]" />;
-    if (entry.session.kind === "fable") return <Sparkles size={14} className="text-violet-400" />;
+    const cmd = commandsByKind[entry.session.kind];
+    if (cmd) return <span style={{ color: cmd.color ?? "var(--muted)" }}>{cmd.icon}</span>;
     return <TerminalSquare size={14} className="text-[var(--muted)]" />;
   }
   if (entry.kind === "primaryTab") return <Layers size={14} className="text-[var(--muted)]" />;
+  if (entry.kind === "action-launch") {
+    return <span style={{ color: entry.cmd.color ?? "var(--muted)" }}>{entry.cmd.icon}</span>;
+  }
   if (entry.icon === "plus-shell") return <Plus size={14} className="text-[var(--muted)]" />;
-  if (entry.icon === "plus-opus") return <Sparkles size={14} className="text-[var(--orange)]" />;
-  if (entry.icon === "plus-fable") return <Sparkles size={14} className="text-violet-400" />;
   return <Archive size={14} className="text-[var(--muted)]" />;
 }
 
@@ -37,9 +39,16 @@ export function CommandPalette() {
   const primaryTabs = useStore(useShallow((s) => s.primaryTabs));
   const sessions = useStore(useShallow((s) => s.sessions));
   const order = useStore(useShallow((s) => s.order));
+  const sessionCommands = useStore((s) => s.sessionCommands);
   const sessionCountInActive = useStore((s) =>
     Object.values(s.sessions).filter((sess) => sess.primaryTabId === s.activePrimaryTabId).length,
   );
+
+  const commandsByKind = useMemo(() => {
+    const m: Record<string, SessionCommand> = {};
+    for (const c of sessionCommands) m[c.type] = c;
+    return m;
+  }, [sessionCommands]);
 
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
@@ -57,7 +66,8 @@ export function CommandPalette() {
 
   const addSession = (kind: SessionKind) => {
     if (!activePrimaryTabId) return;
-    const prefix = kind === "claude" ? "Opus" : kind === "fable" ? "Fable" : "Session";
+    const cmd = commandsByKind[kind];
+    const prefix = cmd ? cmd.label.split(" ")[0] : "Session";
     const label = `${prefix} ${sessionCountInActive + 1}`;
     const id = uuid();
     requestFocus(id);
@@ -139,20 +149,15 @@ export function CommandPalette() {
         icon: "plus-shell",
         run: () => addSession("shell"),
       });
-      out.push({
-        kind: "action",
-        id: "new-opus",
-        label: "New Opus session",
-        icon: "plus-opus",
-        run: () => addSession("claude"),
-      });
-      out.push({
-        kind: "action",
-        id: "new-fable",
-        label: "New Fable session",
-        icon: "plus-fable",
-        run: () => addSession("fable"),
-      });
+      for (const cmd of sessionCommands) {
+        out.push({
+          kind: "action-launch",
+          id: `new-${cmd.type}`,
+          label: `New ${cmd.label}`,
+          cmd,
+          run: () => addSession(cmd.type),
+        });
+      }
     }
     out.push({
       kind: "action",
@@ -171,7 +176,7 @@ export function CommandPalette() {
 
     return out;
     // `addSession` is stable enough via closure — its inputs are tracked above.
-  }, [primaryTabs, sessions, order, activePrimaryTabId, sessionCountInActive, toggleClosedSessions, toggleClosedTabs]);
+  }, [primaryTabs, sessions, order, activePrimaryTabId, sessionCommands, sessionCountInActive, toggleClosedSessions, toggleClosedTabs]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -298,7 +303,7 @@ export function CommandPalette() {
                       : "text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
                   }`}
                 >
-                  <span className="shrink-0">{iconFor(entry)}</span>
+                  <span className="shrink-0">{iconFor(entry, commandsByKind)}</span>
                   <span className="truncate flex-1">{entry.label}</span>
                   {entry.kind === "session" && !entry.inActive && (
                     <span className="text-xs text-[var(--faint)] mono truncate max-w-[40%]">

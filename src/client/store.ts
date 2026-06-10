@@ -6,6 +6,7 @@ import type {
   PrimaryTab,
   ServerMessage,
   Session,
+  SessionCommand,
 } from "../shared/types.ts";
 import { applyTheme, getInitialTheme, type Theme } from "./theme.ts";
 
@@ -27,6 +28,7 @@ interface StoreState extends AppState {
   showClosedTabs: boolean;
   showCommandPalette: boolean;
   termTheme: string;
+  sessionCommands: SessionCommand[];
 
   setStatus: (s: ConnStatus) => void;
   applyServerMessage: (msg: ServerMessage) => void;
@@ -67,6 +69,7 @@ export const useStore = create<StoreState>((set, get) => ({
   showClosedTabs: false,
   showCommandPalette: false,
   termTheme: "Slate Standard",
+  sessionCommands: [],
 
   setStatus: (status) => set({ status }),
 
@@ -92,13 +95,14 @@ export const useStore = create<StoreState>((set, get) => ({
 
   applyServerMessage: (msg) => {
     if (msg.type === "init") {
-      const { state } = msg;
+      const { state, sessionCommands } = msg;
       const firstTab = Object.values(state.primaryTabs)
         .filter((t) => t.closedAt == null)
         .sort((a, b) => a.position - b.position)[0];
       const activePrimaryTabId = get().activePrimaryTabId ?? firstTab?.id ?? null;
       set({
         ...state,
+        sessionCommands,
         activePrimaryTabId,
         activeSessionId: get().activeSessionId ?? restoreFor(get, activePrimaryTabId),
       });

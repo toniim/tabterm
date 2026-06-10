@@ -45,18 +45,18 @@ async function shellCommand(): Promise<string[]> {
   return ["bash", "--rcfile", await sessionInitPath(), "-i"];
 }
 
-// Per-session state dir for claude/fable-kind sessions. We persist one UUID per
-// session up-front; session-init.bash then picks --session-id <uuid> (no jsonl
-// in claude's project store yet) or --resume <uuid> (jsonl exists) at exec
-// time. Using `--continue` would resume whichever conversation in this cwd was
-// touched most recently, crossing tabs over after any shell relaunch.
+// Per-session state dir for AI sessions. We persist one UUID per session up-front;
+// session-init.bash then picks --session-id <uuid> (no jsonl in claude's project
+// store yet) or --resume <uuid> (jsonl exists) at exec time. Using `--continue`
+// would resume whichever conversation in this cwd was touched most recently,
+// crossing tabs over after any shell relaunch.
 const MARKER_DIR = join(homedir(), ".cache/tabterm/sessions");
 
-function uuidFile(sessionId: string, kind: "claude" | "fable"): string {
+function uuidFile(sessionId: string, kind: SessionKind): string {
   return join(MARKER_DIR, `${sessionId}.${kind}.uuid`);
 }
 
-function ensureSessionUuid(sessionId: string, kind: "claude" | "fable"): string {
+function ensureSessionUuid(sessionId: string, kind: SessionKind): string {
   const path = uuidFile(sessionId, kind);
   try {
     const raw = readFileSync(path, "utf8").trim();
@@ -71,19 +71,22 @@ function ensureSessionUuid(sessionId: string, kind: "claude" | "fable"): string 
 }
 
 // Env injected on top of process.env for every session. The TABTERM_* vars let
-// shell hooks / claude hooks call back into the server (POST /api/sessions/:id/
-// status). For AI kinds we additionally set STARTUP_COMMAND + STARTUP_SESSION_ID
-// and let session-init.bash choose --session-id vs --resume at exec time.
+// shell hooks / AI hooks call back into the server (POST /api/sessions/:id/
+// status). When `kind` matches a sessionCommands entry we additionally set
+// STARTUP_COMMAND + STARTUP_SESSION_ID and let session-init.bash choose
+// --session-id vs --resume at exec time. Unknown kinds fall back to a bare
+// shell — safer than killing the session.
 function sessionEnv(sessionId: string, kind: SessionKind): Record<string, string> {
   const base = {
     TABTERM_SESSION_ID: sessionId,
     TABTERM_BASE_URL: `http://127.0.0.1:${config.port}`,
   };
   if (kind === "shell") return base;
-  const command = kind === "fable" ? config.fableCommand : config.claudeCommand;
+  const entry = config.sessionCommands.find((c) => c.type === kind);
+  if (!entry) return base;
   return {
     ...base,
-    STARTUP_COMMAND: command,
+    STARTUP_COMMAND: entry.command,
     STARTUP_SESSION_ID: ensureSessionUuid(sessionId, kind),
   };
 }

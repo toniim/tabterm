@@ -33,14 +33,24 @@ export interface Group {
   position: number;
 }
 
-// "shell" = plain bash. "claude" = launch the server's configured claudeCommand
-// (e.g. ~/bin/opus) on entry; "fable" = launch fableCommand (~/bin/fable). On
-// exit the user is dropped back at bash. Both AI kinds share the per-session
-// UUID machinery in gotty.ts that pins each shell to its own conversation.
-export type SessionKind = "shell" | "claude" | "fable";
+// Opaque identifier for the launch profile. "shell" is the reserved default
+// (plain bash); anything else is matched against the server's sessionCommands
+// list, which says what binary to launch and how to render the button.
+export type SessionKind = string;
+
+// A configurable launch profile served from ~/.config/tabterm.json. The server
+// uses `command` to spawn; the client uses label/icon/color to render the
+// sidebar button + command-palette action for this kind.
+export interface SessionCommand {
+  type: string;
+  label: string;
+  icon: string;
+  command: string;
+  color?: string;
+}
 
 // Runtime liveness signal. Not persisted: starts undefined (treated as "idle")
-// on boot and changes via OSC-133 markers (shell) or claude hooks (claude/fable).
+// on boot and changes via OSC-133 markers (shell) or AI-kind hooks.
 export type SessionStatus = "running" | "idle";
 
 export interface Session {
@@ -80,7 +90,7 @@ export type Entity = "primaryTab" | "group" | "session" | "order" | "note";
 
 // Server → Client
 export type ServerMessage =
-  | { type: "init"; state: AppState }
+  | { type: "init"; state: AppState; sessionCommands: SessionCommand[] }
   | { type: "patch"; entity: Entity; op: "set"; data: unknown }
   | { type: "patch"; entity: Entity; op: "delete"; id: string };
 

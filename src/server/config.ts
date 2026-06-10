@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import type { SessionCommand } from "../shared/types.ts";
 
 // Prod (compiled binary or NODE_ENV=production) reads ~/.config/tabterm.json.
 // Dev reads config.sample.json from the repo root, so iterating locally never
@@ -11,12 +12,16 @@ interface FileConfig {
   gottyBin?: string;
   gottyBasePort?: number;
   sessionInit?: string;
-  // Command to launch for "claude" sessions. Defaults to "claude"; point at the
-  // absolute path of your binary if it lives outside $PATH (e.g. "~/bin/opus").
-  claudeCommand?: string;
-  // Command to launch for "fable" sessions. Defaults to "~/bin/fable".
-  fableCommand?: string;
+  // Launch profiles surfaced as sidebar/palette buttons beyond the bare-shell
+  // default. Each entry maps a session `kind` (DB column) to the binary that
+  // runs on entry plus the label/icon/color shown in the UI.
+  sessionCommands?: SessionCommand[];
 }
+
+const DEFAULT_SESSION_COMMANDS: SessionCommand[] = [
+  { type: "opus",  label: "Opus session",  icon: "✨", command: "~/bin/opus",  color: "var(--orange)" },
+  { type: "fable", label: "Fable session", icon: "🪄", command: "~/bin/fable", color: "#a78bfa" },
+];
 
 const HOME = homedir();
 const COMPILED = import.meta.dir.startsWith("/$bunfs/");
@@ -51,6 +56,8 @@ export const config = {
   gottyBin: file.gottyBin ? expandHome(file.gottyBin) : undefined,
   gottyBasePort: file.gottyBasePort ?? 4001,
   sessionInit: file.sessionInit,
-  claudeCommand: file.claudeCommand ? expandHome(file.claudeCommand) : "claude",
-  fableCommand: expandHome(file.fableCommand ?? "~/bin/fable"),
+  sessionCommands: (file.sessionCommands ?? DEFAULT_SESSION_COMMANDS).map((c) => ({
+    ...c,
+    command: expandHome(c.command),
+  })),
 };
