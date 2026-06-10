@@ -60,12 +60,25 @@ if [ -z "$STARTUP_COMMAND" ]; then
 fi
 
 # ---------------------
-# Optional startup command (set by tabterm for AI sessions). The server passes
-# $STARTUP_SESSION_ARGS pinning this shell to a specific conversation UUID
-# (--session-id <uuid> on first launch, --resume <uuid> after), so each tab
-# resumes its own conversation instead of whichever was most-recently touched
-# in this cwd. When the command exits the user falls back to interactive bash.
+# Optional startup command (set by tabterm for AI sessions). $STARTUP_SESSION_ID
+# pins this shell to a specific conversation UUID so each tab resumes its own
+# conversation instead of `--continue`-ing whichever was most-recently touched
+# in this cwd. We can't blindly --resume: claude errors with "No conversation
+# found" if the UUID has no .jsonl yet (e.g. user never typed anything on the
+# previous launch). And we can't blindly --session-id: claude errors with
+# "already in use" once a .jsonl exists. So inspect claude's project store and
+# pick the right flag for this launch. When the command exits the user falls
+# back to interactive bash.
 # ---------------------
 if [ -n "$STARTUP_COMMAND" ]; then
-  eval "$STARTUP_COMMAND${STARTUP_SESSION_ARGS:+ $STARTUP_SESSION_ARGS}"
+  if [ -n "$STARTUP_SESSION_ID" ]; then
+    PROJECT_KEY="${PWD//[\/.]/-}"
+    if [ -f "$HOME/.claude/projects/$PROJECT_KEY/$STARTUP_SESSION_ID.jsonl" ]; then
+      eval "$STARTUP_COMMAND --resume $STARTUP_SESSION_ID"
+    else
+      eval "$STARTUP_COMMAND --session-id $STARTUP_SESSION_ID"
+    fi
+  else
+    eval "$STARTUP_COMMAND"
+  fi
 fi
