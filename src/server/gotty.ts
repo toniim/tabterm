@@ -1,4 +1,5 @@
 import { spawn, type Subprocess } from "bun";
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -44,29 +45,62 @@ async function shellCommand(): Promise<string[]> {
   return ["bash", "--rcfile", await sessionInitPath(), "-i"];
 }
 
-// Per-session marker dir for claude/fable-kind sessions. Presence of a session's
-// marker file means the AI command has been launched at least once in that
-// session, so subsequent spawns use `--continue` and the conversation resumes
-// across browser-tab close, sidebar reopen, and server restart.
+// Per-session state dir for claude/fable-kind sessions. We persist a UUID per
+// session and pass `--session-id <uuid>` on first spawn, `--resume <uuid>` on
+// every spawn after. `claude --continue` would resume whichever conversation in
+// this cwd was touched most recently, which causes multiple tabs in the same
+// cwd to cross over after a tab/server restart.
 const MARKER_DIR = join(homedir(), ".cache/tabterm/sessions");
+
+function uuidFile(sessionId: string, kind: "claude" | "fable"): string {
+  return join(MARKER_DIR, `${sessionId}.${kind}.uuid`);
+}
+
+function readSessionUuid(sessionId: string, kind: "claude" | "fable"): string | null {
+  try {
+    const raw = readFileSync(uuidFile(sessionId, kind), "utf8").trim();
+    return /^[0-9a-f-]{36}$/i.test(raw) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSessionUuid(sessionId: string, kind: "claude" | "fable", uuid: string): void {
+  mkdirSync(MARKER_DIR, { recursive: true });
+  writeFileSync(uuidFile(sessionId, kind), uuid);
+}
+
+interface AiPlan {
+  uuid: string;
+  mode: "new" | "resume";
+}
+
+function planAiSession(sessionId: string, kind: "claude" | "fable"): AiPlan {
+  const existing = readSessionUuid(sessionId, kind);
+  if (existing) return { uuid: existing, mode: "resume" };
+  return { uuid: randomUUID(), mode: "new" };
+}
 
 // Env injected on top of process.env for every session. The TABTERM_* vars let
 // shell hooks / claude hooks call back into the server (POST /api/sessions/:id/
-// status). For AI kinds we additionally set STARTUP_COMMAND/MARKER so
-// session-init.bash launches the configured binary (plain on first run,
-// --continue thereafter).
-function sessionEnv(sessionId: string, kind: SessionKind): Record<string, string> {
+// status). For AI kinds we additionally set STARTUP_COMMAND + STARTUP_SESSION_ARGS
+// so session-init.bash launches the binary with the right session-pinning flags.
+function sessionEnv(
+  sessionId: string,
+  kind: SessionKind,
+  plan: AiPlan | null,
+): Record<string, string> {
   const base = {
     TABTERM_SESSION_ID: sessionId,
     TABTERM_BASE_URL: `http://127.0.0.1:${config.port}`,
   };
-  if (kind === "shell") return base;
+  if (kind === "shell" || !plan) return base;
   const command = kind === "fable" ? config.fableCommand : config.claudeCommand;
-  mkdirSync(MARKER_DIR, { recursive: true });
+  const flag = plan.mode === "new" ? "--session-id" : "--resume";
   return {
     ...base,
     STARTUP_COMMAND: command,
-    STARTUP_MARKER: join(MARKER_DIR, `${sessionId}.${kind}-started`),
+    STARTUP_SESSION_ARGS: `${flag} ${plan.uuid}`,
   };
 }
 
@@ -187,7 +221,9 @@ export async function ensure(sessionId: string): Promise<number> {
   if (meta?.cwd && !cwd) {
     console.warn(`[gotty] session ${sessionId} cwd "${meta.cwd}" not found, falling back`);
   }
-  const extraEnv = sessionEnv(sessionId, meta?.kind ?? "shell");
+  const kind = meta?.kind ?? "shell";
+  const plan = kind === "shell" ? null : planAiSession(sessionId, kind);
+  const extraEnv = sessionEnv(sessionId, kind, plan);
 
   for (let attempt = 1; attempt <= 5; attempt++) {
     const port = await allocatePort();
@@ -220,6 +256,7 @@ export async function ensure(sessionId: string): Promise<number> {
       procs.set(sessionId, { proc, port });
       setSessionPort(sessionId, port);
       if (proc.pid) writePidFile(sessionId, proc.pid);
+      if (kind !== "shell" && plan?.mode === "new") writeSessionUuid(sessionId, kind, plan.uuid);
       console.log(`[gotty] session ${sessionId} -> ${cmd.join(" ")} on :${port}${cwd ? ` (cwd=${cwd})` : ""}`);
       return port;
     }

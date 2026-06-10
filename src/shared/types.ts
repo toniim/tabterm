@@ -35,8 +35,8 @@ export interface Group {
 
 // "shell" = plain bash. "claude" = launch the server's configured claudeCommand
 // (e.g. ~/bin/opus) on entry; "fable" = launch fableCommand (~/bin/fable). On
-// exit the user is dropped back at bash. Both AI kinds share the claude-style
-// startup-marker / --continue resume machinery.
+// exit the user is dropped back at bash. Both AI kinds share the per-session
+// UUID machinery in gotty.ts that pins each shell to its own conversation.
 export type SessionKind = "shell" | "claude" | "fable";
 
 // Runtime liveness signal. Not persisted: starts undefined (treated as "idle")

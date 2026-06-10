@@ -60,16 +60,12 @@ if [ -z "$STARTUP_COMMAND" ]; then
 fi
 
 # ---------------------
-# Optional startup command (set by tabterm for "claude" sessions). The marker
-# file lets us run the command plain on first launch and with --continue on
-# subsequent ones, so closing/reopening the browser tab resumes the conversation.
-# When the command exits the user falls back to interactive bash.
+# Optional startup command (set by tabterm for AI sessions). The server passes
+# $STARTUP_SESSION_ARGS pinning this shell to a specific conversation UUID
+# (--session-id <uuid> on first launch, --resume <uuid> after), so each tab
+# resumes its own conversation instead of whichever was most-recently touched
+# in this cwd. When the command exits the user falls back to interactive bash.
 # ---------------------
 if [ -n "$STARTUP_COMMAND" ]; then
-  if [ -n "$STARTUP_MARKER" ] && [ -f "$STARTUP_MARKER" ]; then
-    eval "$STARTUP_COMMAND --continue"
-  else
-    [ -n "$STARTUP_MARKER" ] && { mkdir -p "$(dirname "$STARTUP_MARKER")"; touch "$STARTUP_MARKER"; }
-    eval "$STARTUP_COMMAND"
-  fi
+  eval "$STARTUP_COMMAND${STARTUP_SESSION_ARGS:+ $STARTUP_SESSION_ARGS}"
 fi
