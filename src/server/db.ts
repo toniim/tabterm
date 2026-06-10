@@ -179,6 +179,7 @@ const q = {
     "INSERT INTO primary_tabs (id, label, position, cwd) VALUES (?, ?, ?, ?)",
   ),
   setPrimaryTabCwd: db.query("UPDATE primary_tabs SET cwd = ? WHERE id = ?"),
+  setPrimaryTabPos: db.query("UPDATE primary_tabs SET position = ? WHERE id = ?"),
   maxTabPos: db.query<{ p: number | null }, []>("SELECT MAX(position) AS p FROM primary_tabs"),
   insertGroup: db.query(
     "INSERT INTO groups (id, primary_tab_id, label, color, is_open, position) VALUES (?, ?, ?, ?, 1, ?)",
@@ -286,6 +287,19 @@ export function createTab(
   q.insertPrimaryTab.run(id, label, position, cwd);
   q.upsertOrder.run(id, "[]");
   return toPrimaryTab(q.getPrimaryTab.get(id)!);
+}
+
+// Reassign positions for the visible tabs in the given left-to-right order.
+// `order` lists only the currently-visible tab ids; hidden tabs keep their
+// stored positions and are simply re-sorted among the visible ones if reopened.
+export function reorderTabs(order: string[]): PrimaryTab[] {
+  const out: PrimaryTab[] = [];
+  order.forEach((id, i) => {
+    if (!q.getPrimaryTab.get(id)) return;
+    q.setPrimaryTabPos.run(i, id);
+    out.push(toPrimaryTab(q.getPrimaryTab.get(id)!));
+  });
+  return out;
 }
 
 export function setTabCwd(tabId: string, cwd: string): PrimaryTab | null {

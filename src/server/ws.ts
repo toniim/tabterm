@@ -13,6 +13,7 @@ import {
   renameEntity,
   reopenSession,
   reopenTab,
+  reorderTabs,
   setTabCwd,
   toggleGroup,
   upsertNote,
@@ -126,6 +127,10 @@ export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
     }
     case "tab:create": {
       broadcast(setPatch("primaryTab", createTab(msg.label, msg.cwd ?? "", msg.id)));
+      break;
+    }
+    case "tab:reorder": {
+      for (const tab of reorderTabs(msg.order)) broadcast(setPatch("primaryTab", tab));
       break;
     }
     case "tab:setCwd": {
