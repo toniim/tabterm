@@ -36,6 +36,9 @@ interface StoreState extends AppState {
   showClosedSessions: boolean;
   showClosedTabs: boolean;
   showCommandPalette: boolean;
+  // On-screen terminal key bar (Esc/Ctrl/arrows…). Per-device pref persisted to
+  // localStorage; defaults on for touch devices, off on desktop.
+  showKeyBar: boolean;
   sessionCommands: SessionCommand[];
   // Note ids whose last local edit the server rejected as stale (a newer remote
   // edit exists). NotesPanel shows a resolve banner for the active note in here.
@@ -53,7 +56,17 @@ interface StoreState extends AppState {
   toggleClosedSessions: () => void;
   toggleClosedTabs: () => void;
   toggleCommandPalette: () => void;
+  toggleKeyBar: () => void;
   clearNoteConflict: (id: string) => void;
+}
+
+// On-screen key bar default: persisted choice, else on for touch (coarse pointer).
+const KEYBAR_KEY = "tabterm-keybar";
+function initKeyBar(): boolean {
+  const saved = localStorage.getItem(KEYBAR_KEY);
+  if (saved === "1") return true;
+  if (saved === "0") return false;
+  return typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
 }
 
 // Fallback used before the server `init` message arrives; mirrors the DB defaults
@@ -119,6 +132,7 @@ export const useStore = create<StoreState>((set, get) => ({
   showClosedSessions: false,
   showClosedTabs: false,
   showCommandPalette: false,
+  showKeyBar: initKeyBar(),
   sessionCommands: [],
   noteConflicts: new Set(),
 
@@ -146,6 +160,11 @@ export const useStore = create<StoreState>((set, get) => ({
   toggleClosedSessions: () => set({ showClosedSessions: !get().showClosedSessions }),
   toggleClosedTabs: () => set({ showClosedTabs: !get().showClosedTabs }),
   toggleCommandPalette: () => set({ showCommandPalette: !get().showCommandPalette }),
+  toggleKeyBar: () => {
+    const v = !get().showKeyBar;
+    localStorage.setItem(KEYBAR_KEY, v ? "1" : "0");
+    set({ showKeyBar: v });
+  },
   clearNoteConflict: (id) => {
     const cur = get().noteConflicts;
     if (!cur.has(id)) return;
