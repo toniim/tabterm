@@ -65,7 +65,7 @@ export function onClose(ws: ServerWebSocket<unknown>): void {
   pool.delete(ws);
 }
 
-export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
+export function onMessage(ws: ServerWebSocket<unknown>, raw: string): void {
   let msg: ClientMessage;
   try {
     msg = JSON.parse(raw) as ClientMessage;
@@ -193,10 +193,17 @@ export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
     }
     case "note:update": {
       // Either or both fields may be present.
-      let note = null;
-      if (msg.content !== undefined) note = updateNoteContent(msg.noteId, msg.content);
-      if (msg.title !== undefined) note = updateNoteTitle(msg.noteId, msg.title);
-      if (note) broadcast(setPatch("note", note));
+      if (msg.content !== undefined) {
+        const res = updateNoteContent(msg.noteId, msg.content, msg.baseVersion);
+        if (res?.applied) broadcast(setPatch("note", res.note));
+        // Stale write: don't clobber newer content. Tell just this client its
+        // edit was rejected + hand it the authoritative note to resync from.
+        else if (res) send(ws, { type: "note:conflict", note: res.note });
+      }
+      if (msg.title !== undefined) {
+        const note = updateNoteTitle(msg.noteId, msg.title);
+        if (note) broadcast(setPatch("note", note));
+      }
       break;
     }
     case "note:delete": {

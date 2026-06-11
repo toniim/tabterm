@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Plus, Trash2 } from "lucide-react";
 import type { Editor } from "@tiptap/react";
 import { useStore } from "../store.ts";
 import { sendMessage } from "../ws.ts";
@@ -18,6 +18,8 @@ export function NotesPanel({ sessionId }: { sessionId: string }) {
   const storeActiveId = useStore((s) => s.sessions[sessionId]?.activeNoteId ?? null);
 
   const notes = useStore((s) => s.notes);
+  const noteConflicts = useStore((s) => s.noteConflicts);
+  const clearNoteConflict = useStore((s) => s.clearNoteConflict);
   const notesForSession = useMemo<Note[]>(
     () =>
       Object.values(notes)
@@ -54,40 +56,61 @@ export function NotesPanel({ sessionId }: { sessionId: string }) {
   }, [storeActiveId]);
 
   const activeNote = resolvedActiveId ? notes[resolvedActiveId] ?? null : null;
+  const conflicted = !!activeNote && noteConflicts.has(activeNote.id);
 
-  // 300ms debounce mirroring the prior NotesPanel — every keystroke schedules
-  // a single content update for whatever note id the keystroke belonged to.
+  // Pending content edits keyed by note id, flushed 300ms after the last
+  // keystroke. Keying by note (not one shared timer) means switching notes
+  // flushes the previous note's buffered edit instead of cancelling it.
+  const pending = useRef<Map<string, string>>(new Map());
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Latest markdown the editor emitted, kept so "keep mine" can force-write it.
+  const latestMarkdown = useRef("");
+  // Optimistic base version per note for OCC. Each accepted write bumps the
+  // server version by one, so we advance our base by one per send (our own
+  // echoes therefore don't read as conflicts). The editor re-anchors this to
+  // the server's value via onContentLoaded whenever it passively reloads.
+  const baseByNote = useRef<Map<string, number>>(new Map());
 
-  const sendContent = (noteId: string, content: string) => {
+  const flushPending = () => {
     clearTimeout(timer.current);
-    timer.current = setTimeout(
-      () => sendMessage({ type: "note:update", noteId, content }),
-      300,
-    );
+    for (const [noteId, content] of pending.current) {
+      const base = baseByNote.current.get(noteId) ?? notes[noteId]?.version ?? 1;
+      sendMessage({ type: "note:update", noteId, content, baseVersion: base });
+      baseByNote.current.set(noteId, base + 1); // optimistic: assume accepted
+    }
+    pending.current.clear();
   };
 
+  const queueContent = (noteId: string, content: string) => {
+    pending.current.set(noteId, content);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(flushPending, 300);
+  };
+
+  // Flush buffered edits on unmount so the last keystrokes aren't lost.
+  useEffect(() => () => flushPending(), []);
+
   const handleChange = (markdown: string) => {
-    // No active note yet → mint one, send create + the first content update
-    // in one breath. Subsequent keystrokes route through the normal path.
+    latestMarkdown.current = markdown;
+    // No active note yet → mint one. Subsequent keystrokes route normally.
     if (!activeNote && !pendingId.current) {
-      // Don't create a note for an empty editor (e.g. tiptap initialisation
-      // noise that yields "" — wait for actual content).
+      // Don't create a note for an empty editor (tiptap init noise yields "").
       if (!markdown.trim()) return;
       const id = uuid();
       pendingId.current = id;
       sendMessage({ type: "note:create", sessionId, id });
-      sendContent(id, markdown);
+      queueContent(id, markdown);
       return;
     }
     // Prefer pendingId so keystrokes between "+ New note" click and the
     // server's broadcast route to the just-created note, not the old active one.
     const targetId = pendingId.current ?? activeNote?.id;
     if (!targetId) return;
-    sendContent(targetId, markdown);
+    queueContent(targetId, markdown);
   };
 
   const onCreate = () => {
+    flushPending();
     const id = uuid();
     pendingId.current = id;
     // Drop editor focus so its content-sync effect picks up the new empty note
@@ -98,6 +121,7 @@ export function NotesPanel({ sessionId }: { sessionId: string }) {
 
   const onSwitch = (noteId: string) => {
     if (noteId === resolvedActiveId) return;
+    flushPending();
     editorRef.current?.commands.blur();
     sendMessage({ type: "note:setActive", sessionId, noteId });
   };
@@ -108,6 +132,30 @@ export function NotesPanel({ sessionId }: { sessionId: string }) {
 
   const onRename = (noteId: string, title: string) => {
     sendMessage({ type: "note:update", noteId, title });
+  };
+
+  // Conflict resolution. The note's `version` here is already the authoritative
+  // value the server resynced via note:conflict, so keep-mine force-writes at
+  // that base (accepted), while take-theirs just reloads it. Both blur the
+  // editor so its content-sync effect re-anchors the base version.
+  const keepMine = () => {
+    if (!activeNote) return;
+    pending.current.delete(activeNote.id);
+    sendMessage({
+      type: "note:update",
+      noteId: activeNote.id,
+      content: latestMarkdown.current,
+      baseVersion: activeNote.version,
+    });
+    baseByNote.current.set(activeNote.id, activeNote.version + 1); // optimistic
+    clearNoteConflict(activeNote.id);
+    editorRef.current?.commands.blur();
+  };
+  const takeTheirs = () => {
+    if (!activeNote) return;
+    pending.current.delete(activeNote.id);
+    clearNoteConflict(activeNote.id);
+    editorRef.current?.commands.blur();
   };
 
   const editorContent = activeNote?.content ?? "";
@@ -166,10 +214,36 @@ export function NotesPanel({ sessionId }: { sessionId: string }) {
         </div>
       )}
 
+      {conflicted && (
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-amber-500/30 bg-amber-500/10 text-[11px] text-amber-300 shrink-0">
+          <AlertTriangle size={13} className="shrink-0" />
+          <span className="flex-1 min-w-0">
+            Changed elsewhere — your edit was based on an older version.
+          </span>
+          <button
+            onClick={keepMine}
+            className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 font-medium shrink-0"
+            title="Overwrite the remote version with what you have here"
+          >
+            Keep mine
+          </button>
+          <button
+            onClick={takeTheirs}
+            className="px-2 py-0.5 rounded hover:bg-[var(--hover)] shrink-0"
+            title="Discard your changes and load the remote version"
+          >
+            Take theirs
+          </button>
+        </div>
+      )}
       <div className="flex-1 min-h-0">
         <TiptapEditor
           content={editorContent}
+          version={activeNote?.version ?? 0}
           onChange={handleChange}
+          onContentLoaded={(v) => {
+            if (resolvedActiveId) baseByNote.current.set(resolvedActiveId, v);
+          }}
           placeholder={activeNote ? "Write…" : "Write a note…"}
           editorRef={editorRef}
         />

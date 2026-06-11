@@ -24,14 +24,25 @@ import {
 // `editorRef` (optional) lets the parent grab the underlying editor — used by
 // NotesPanel to force a blur when the user clicks a different note in the list
 // (so the focused-guard below releases and the new content is loaded).
+const getMarkdown = (e: Editor): string =>
+  (e.storage as unknown as { markdown: { getMarkdown(): string } }).markdown.getMarkdown();
+
 export function TiptapEditor({
   content,
+  version,
   onChange,
+  onContentLoaded,
   placeholder,
   editorRef,
 }: {
   content: string;
+  // Authoritative version of `content`, reported back via onContentLoaded when
+  // the editor passively (re)loads it (i.e. the user isn't the one typing).
+  version: number;
   onChange: (markdown: string) => void;
+  // Fired when authoritative content is loaded into the editor while not typing,
+  // so the panel can re-anchor its optimistic base version to the server's.
+  onContentLoaded?: (version: number) => void;
   placeholder?: string;
   editorRef?: { current: Editor | null };
 }) {
@@ -45,7 +56,7 @@ export function TiptapEditor({
     ],
     content,
     onUpdate: ({ editor }) => {
-      onChange((editor.storage as unknown as { markdown: { getMarkdown(): string } }).markdown.getMarkdown());
+      onChange(getMarkdown(editor));
     },
     onFocus: () => {
       focused.current = true;
@@ -61,14 +72,18 @@ export function TiptapEditor({
   }, [editor, editorRef]);
 
   // Reflect external content changes (session switch, remote edit) into the
-  // editor, but only when the user isn't typing.
+  // editor, but only when the user isn't typing. When we passively adopt
+  // authoritative content we report its version so the panel re-anchors its
+  // base; while typing we leave both buffer and base alone.
   useEffect(() => {
     if (!editor) return;
     if (focused.current) return;
-    const current = (editor.storage as unknown as { markdown: { getMarkdown(): string } }).markdown.getMarkdown();
-    if (current === content) return;
-    editor.commands.setContent(content, { emitUpdate: false });
-  }, [content, editor]);
+    if (getMarkdown(editor) !== content) {
+      editor.commands.setContent(content, { emitUpdate: false });
+    }
+    onContentLoaded?.(version);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content, version, editor]);
 
   return (
     <div className="flex flex-col h-full min-h-0">

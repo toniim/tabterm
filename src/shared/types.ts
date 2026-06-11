@@ -87,6 +87,10 @@ export interface Note {
   position: number;
   createdAt: number;
   updatedAt: number;
+  // Monotonic counter bumped on every content/title write. Drives optimistic
+  // concurrency: a `note:update` carrying a `baseVersion` older than this is a
+  // stale write and the server rejects it instead of clobbering newer content.
+  version: number;
 }
 
 // Global terminal display preferences. Synced across all clients (persisted in
@@ -120,7 +124,11 @@ export type ServerMessage =
   // Ephemeral attention ping (not persisted). Emitted when a claude-backed
   // session fires a Notification hook; the client badges the session and may
   // raise a browser notification unless that session is already focused.
-  | { type: "notify"; sessionId: string; message: string };
+  | { type: "notify"; sessionId: string; message: string }
+  // Sent only to the client whose `note:update` was rejected as stale. Carries
+  // the authoritative note so the client can resync and surface the conflict
+  // (its in-flight edit was based on an older version and was not applied).
+  | { type: "note:conflict"; note: Note };
 
 // Client → Server
 export type ClientMessage =
@@ -150,8 +158,10 @@ export type ClientMessage =
   | { type: "note:create"; sessionId: string; id?: string }
   // Update a note's content, title, or both. When `title` is sent the server
   // also flips `titleAutoDerived = false` so subsequent content edits don't
-  // overwrite the user's chosen title.
-  | { type: "note:update"; noteId: string; content?: string; title?: string }
+  // overwrite the user's chosen title. `baseVersion` (content edits) is the
+  // note version the edit was based on; the server rejects the write if the
+  // note has since advanced, so a stale client can't clobber newer content.
+  | { type: "note:update"; noteId: string; content?: string; title?: string; baseVersion?: number }
   | { type: "note:delete"; noteId: string }
   | { type: "note:setActive"; sessionId: string; noteId: string }
   // Update one or more global terminal display preferences. Server clamps

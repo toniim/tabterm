@@ -37,6 +37,9 @@ interface StoreState extends AppState {
   showClosedTabs: boolean;
   showCommandPalette: boolean;
   sessionCommands: SessionCommand[];
+  // Note ids whose last local edit the server rejected as stale (a newer remote
+  // edit exists). NotesPanel shows a resolve banner for the active note in here.
+  noteConflicts: Set<string>;
 
   setStatus: (s: ConnStatus) => void;
   applyServerMessage: (msg: ServerMessage) => void;
@@ -50,6 +53,7 @@ interface StoreState extends AppState {
   toggleClosedSessions: () => void;
   toggleClosedTabs: () => void;
   toggleCommandPalette: () => void;
+  clearNoteConflict: (id: string) => void;
 }
 
 // Fallback used before the server `init` message arrives; mirrors the DB defaults
@@ -74,6 +78,15 @@ const empty: AppState = {
 // there's nothing to remove, so activation doesn't churn unrelated subscribers.
 function cleared(get: () => StoreState, id: string | null): Set<string> {
   const cur = get().attention;
+  if (!id || !cur.has(id)) return cur;
+  const next = new Set(cur);
+  next.delete(id);
+  return next;
+}
+
+// Same reuse-when-unchanged trick for the note-conflict set when a note goes away.
+function clearedConflict(get: () => StoreState, id: string | null): Set<string> {
+  const cur = get().noteConflicts;
   if (!id || !cur.has(id)) return cur;
   const next = new Set(cur);
   next.delete(id);
@@ -107,6 +120,7 @@ export const useStore = create<StoreState>((set, get) => ({
   showClosedTabs: false,
   showCommandPalette: false,
   sessionCommands: [],
+  noteConflicts: new Set(),
 
   setStatus: (status) => set({ status }),
 
@@ -132,6 +146,13 @@ export const useStore = create<StoreState>((set, get) => ({
   toggleClosedSessions: () => set({ showClosedSessions: !get().showClosedSessions }),
   toggleClosedTabs: () => set({ showClosedTabs: !get().showClosedTabs }),
   toggleCommandPalette: () => set({ showCommandPalette: !get().showCommandPalette }),
+  clearNoteConflict: (id) => {
+    const cur = get().noteConflicts;
+    if (!cur.has(id)) return;
+    const next = new Set(cur);
+    next.delete(id);
+    set({ noteConflicts: next });
+  },
 
   applyServerMessage: (msg) => {
     if (msg.type === "init") {
@@ -172,12 +193,20 @@ export const useStore = create<StoreState>((set, get) => ({
       return;
     }
 
+    if (msg.type === "note:conflict") {
+      const n = msg.note;
+      const conflicts = new Set(get().noteConflicts);
+      conflicts.add(n.id);
+      set({ notes: { ...get().notes, [n.id]: n }, noteConflicts: conflicts });
+      return;
+    }
+
     // patch
     if (msg.op === "delete") {
       if (msg.entity === "note") {
         const notes = { ...get().notes };
         delete notes[msg.id];
-        set({ notes });
+        set({ notes, noteConflicts: clearedConflict(get, msg.id) });
         return;
       }
       if (msg.entity === "session") {

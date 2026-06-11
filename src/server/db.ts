@@ -63,7 +63,8 @@ db.exec(`
     title_auto_derived INTEGER NOT NULL DEFAULT 1,
     position INTEGER NOT NULL,
     created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    version INTEGER NOT NULL DEFAULT 1
   );
 
   -- Single-row (id = 1) global terminal display preferences, synced to clients.
@@ -171,6 +172,16 @@ if (!noteCols.includes("id")) {
   if (legacy.length) console.log(`[db] migrated ${legacy.length} note(s) to multi-note schema`);
 }
 
+// Add notes.version to pre-existing multi-note DBs (and legacy-migrated ones,
+// whose recreate above omits it). Existing rows start at version 1.
+const noteColsNow = db
+  .query<{ name: string }, []>("PRAGMA table_info(notes)")
+  .all()
+  .map((c) => c.name);
+if (!noteColsNow.includes("version")) {
+  db.exec("ALTER TABLE notes ADD COLUMN version INTEGER NOT NULL DEFAULT 1");
+}
+
 // Index for the now-stable schema; safe on fresh DBs (created by IF NOT EXISTS
 // above) and on migrated ones alike.
 db.exec("CREATE INDEX IF NOT EXISTS idx_notes_session ON notes(session_id, position);");
@@ -194,7 +205,7 @@ interface OrderRow { primary_tab_id: string; order_json: string }
 interface NoteRow {
   id: string; session_id: string; title: string; content: string;
   title_auto_derived: number; position: number;
-  created_at: number; updated_at: number;
+  created_at: number; updated_at: number; version: number;
 }
 interface SettingsRow {
   id: number; term_font_family: string; term_font_size: number;
@@ -237,6 +248,7 @@ const toNote = (r: NoteRow): Note => ({
   position: r.position,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
+  version: r.version ?? 1,
 });
 const toSettings = (r: SettingsRow): AppSettings => ({
   termFontFamily: r.term_font_family,
@@ -312,13 +324,13 @@ const q = {
       "VALUES (?, ?, 'Untitled', '', 1, ?, unixepoch(), unixepoch())",
   ),
   updateNoteContent: db.query(
-    "UPDATE notes SET content = ?, updated_at = unixepoch() WHERE id = ?",
+    "UPDATE notes SET content = ?, version = version + 1, updated_at = unixepoch() WHERE id = ?",
   ),
   updateNoteContentAndTitle: db.query(
-    "UPDATE notes SET content = ?, title = ?, updated_at = unixepoch() WHERE id = ?",
+    "UPDATE notes SET content = ?, title = ?, version = version + 1, updated_at = unixepoch() WHERE id = ?",
   ),
   updateNoteTitle: db.query(
-    "UPDATE notes SET title = ?, title_auto_derived = 0, updated_at = unixepoch() WHERE id = ?",
+    "UPDATE notes SET title = ?, title_auto_derived = 0, version = version + 1, updated_at = unixepoch() WHERE id = ?",
   ),
   deleteNote: db.query("DELETE FROM notes WHERE id = ?"),
   // Latest-touched remaining note in the session, excluding the one we're about
@@ -650,15 +662,26 @@ export function createNote(
 
 // Content-only update: refresh the markdown body and, while the title still
 // follows the first line, recompute it from the new content in the same write.
-export function updateNoteContent(noteId: string, content: string): Note | null {
+// Optimistic concurrency: when `baseVersion` is supplied and the note has since
+// advanced past it, the write is a stale edit — reject it (return applied:false
+// + the current note) so the caller can resync the client instead of clobbering
+// newer content. Missing baseVersion = unconditional write (back-compat).
+export function updateNoteContent(
+  noteId: string,
+  content: string,
+  baseVersion?: number,
+): { note: Note; applied: boolean } | null {
   const existing = q.getNote.get(noteId);
   if (!existing) return null;
+  if (baseVersion != null && (existing.version ?? 1) !== baseVersion) {
+    return { note: toNote(existing), applied: false };
+  }
   if (existing.title_auto_derived === 1) {
     q.updateNoteContentAndTitle.run(content, deriveTitle(content), noteId);
   } else {
     q.updateNoteContent.run(content, noteId);
   }
-  return toNote(q.getNote.get(noteId)!);
+  return { note: toNote(q.getNote.get(noteId)!), applied: true };
 }
 
 // Manual rename: stops the first-line auto-derivation so subsequent content
