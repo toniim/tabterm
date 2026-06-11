@@ -1,9 +1,5 @@
 {
   "dbPath": "./data/state.db",
   "port": 3000,
-  "gottyBasePort": 4001,
-  "sessionCommands": [
-    { "type": "opus",  "label": "Opus session",  "icon": "✨", "command": "~/bin/opus",  "color": "var(--orange)" },
-    { "type": "fable", "label": "Fable session", "icon": "🪄", "command": "~/bin/fable", "color": "#a78bfa" }
-  ]
+  "gottyBasePort": 4001
 }

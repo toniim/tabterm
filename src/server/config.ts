@@ -21,10 +21,10 @@ interface FileConfig {
   sessionCommands?: SessionCommand[];
 }
 
-const DEFAULT_SESSION_COMMANDS: SessionCommand[] = [
-  { type: "opus",  label: "Opus session",  icon: "✨", command: "~/bin/opus",  color: "var(--orange)" },
-  { type: "fable", label: "Fable session", icon: "🪄", command: "~/bin/fable", color: "#a78bfa" },
-];
+// No baked-in launch profiles by default — a fresh install shows only the plain
+// "+ shell" action. Define `sessionCommands` in the config file to add buttons
+// that launch a custom command (e.g. an AI CLI) as a session.
+const DEFAULT_SESSION_COMMANDS: SessionCommand[] = [];
 
 const HOME = homedir();
 const COMPILED = import.meta.dir.startsWith("/$bunfs/");
