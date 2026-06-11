@@ -9,9 +9,9 @@ import "./index.css";
 applyTheme(getInitialTheme());
 connect();
 
-window.addEventListener("beforeunload", (e) => {
-  e.preventDefault();
-});
+// No beforeunload guard: sessions are durable (tmux-backed) and all state lives
+// server-side, so leaving or reloading the page loses nothing — reconnecting
+// restores the same shells and notes.
 
 // Returning to the window while a badged session is already on screen means the
 // user has effectively seen it — clear that one badge (others stay).
