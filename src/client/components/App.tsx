@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { PanelLeftOpen, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import { useStore } from "../store.ts";
 import { sendMessage } from "../ws.ts";
 import { ClosedSessionsModal } from "./ClosedSessionsModal.tsx";
@@ -11,27 +11,12 @@ import { Sidebar } from "./Sidebar.tsx";
 import { StatusBar } from "./StatusBar.tsx";
 import { TerminalPanel } from "./TerminalPanel.tsx";
 
-function SidebarRail() {
-  const toggleSidebar = useStore((s) => s.toggleSidebar);
-  return (
-    <div className="w-9 shrink-0 border-r border-[var(--border)] bg-[var(--panel)] flex flex-col items-center pt-2">
-      <button
-        onClick={toggleSidebar}
-        className="w-7 h-9 flex items-center justify-center rounded-md text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
-        title="Show sidebar (⌘B)"
-      >
-        <PanelLeftOpen size={16} />
-      </button>
-    </div>
-  );
-}
-
 export function App() {
   const activeSessionId = useStore((s) => s.activeSessionId);
   const session = useStore((s) => (activeSessionId ? s.sessions[activeSessionId] : null));
-  const showSidebar = useStore((s) => s.showSidebar);
-  const showNotes = useStore((s) => s.showNotes);
-  const toggleSidebar = useStore((s) => s.toggleSidebar);
+  // Sidebar/notes visibility is server-persisted (synced settings), toggled over WS.
+  const showSidebar = useStore((s) => s.settings.showSidebar);
+  const showNotes = useStore((s) => s.settings.showNotes);
   const toggleCommandPalette = useStore((s) => s.toggleCommandPalette);
 
   // Capture-phase listener so it preempts xterm's custom key handler in Terminal.tsx.
@@ -46,19 +31,21 @@ export function App() {
         } else if (k === "b") {
           e.preventDefault();
           e.stopPropagation();
-          toggleSidebar();
+          // read latest from the store so the handler stays stable
+          const cur = useStore.getState().settings.showSidebar;
+          sendMessage({ type: "settings:update", patch: { showSidebar: !cur } });
         }
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [toggleCommandPalette, toggleSidebar]);
+  }, [toggleCommandPalette]);
 
   return (
     <div className="h-full flex flex-col bg-[var(--bg)]">
       <PrimaryTabs />
       <div className="flex-1 flex min-h-0">
-        {showSidebar ? <Sidebar /> : <SidebarRail />}
+        {showSidebar && <Sidebar />}
         {session ? (
           session.closedAt != null ? (
             <div className="flex-1 m-3 rounded-xl border border-[var(--border)] bg-[var(--panel)] flex flex-col items-center justify-center gap-4 text-sm">

@@ -32,7 +32,8 @@ export function Sidebar() {
   const setActiveSession = useStore((s) => s.setActiveSession);
   const requestFocus = useStore((s) => s.requestFocus);
   const sessionCommands = useStore((s) => s.sessionCommands);
-  const toggleSidebar = useStore((s) => s.toggleSidebar);
+  // Sidebar visibility is server-persisted (synced settings), toggled over WS.
+  const hideSidebar = () => sendMessage({ type: "settings:update", patch: { showSidebar: false } });
 
   const drag = useRef<Drag | null>(null);
   const grpTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -186,7 +187,7 @@ export function Sidebar() {
         <button onClick={addGroup} className="text-[var(--muted)] hover:text-[var(--text)]" title="New group">
           <FolderPlus size={16} />
         </button>
-        <button onClick={toggleSidebar} className="text-[var(--muted)] hover:text-[var(--text)]" title="Hide sidebar (⌘B)">
+        <button onClick={hideSidebar} className="text-[var(--muted)] hover:text-[var(--text)]" title="Hide sidebar (⌘B)">
           <PanelLeftClose size={16} />
         </button>
       </div>

@@ -101,6 +101,9 @@ export interface AppSettings {
   termFontSize: number;
   termLineHeight: number;
   termTheme: string;
+  // Layout panel visibility, persisted server-side so it survives a refresh.
+  showSidebar: boolean;
+  showNotes: boolean;
 }
 
 // Full application state sent on connect and held in the client store.

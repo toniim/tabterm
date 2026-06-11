@@ -31,8 +31,6 @@ interface StoreState extends AppState {
   // via the command palette). Terminals watch the value, not the contents.
   focusTerminalEpoch: number;
   theme: Theme;
-  showSidebar: boolean;
-  showNotes: boolean;
   showClosedSessions: boolean;
   showClosedTabs: boolean;
   showCommandPalette: boolean;
@@ -51,8 +49,6 @@ interface StoreState extends AppState {
   requestFocus: (id: string) => void;
   focusActiveTerminal: () => void;
   toggleTheme: () => void;
-  toggleSidebar: () => void;
-  toggleNotes: () => void;
   toggleClosedSessions: () => void;
   toggleClosedTabs: () => void;
   toggleCommandPalette: () => void;
@@ -76,6 +72,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   termFontSize: 13,
   termLineHeight: 1.0,
   termTheme: "Slate Standard",
+  showSidebar: true,
+  showNotes: true,
 };
 
 const empty: AppState = {
@@ -127,8 +125,6 @@ export const useStore = create<StoreState>((set, get) => ({
   attention: new Set(),
   focusTerminalEpoch: 0,
   theme: getInitialTheme(),
-  showSidebar: true,
-  showNotes: true,
   showClosedSessions: false,
   showClosedTabs: false,
   showCommandPalette: false,
@@ -155,8 +151,6 @@ export const useStore = create<StoreState>((set, get) => ({
     applyTheme(theme);
     set({ theme });
   },
-  toggleSidebar: () => set({ showSidebar: !get().showSidebar }),
-  toggleNotes: () => set({ showNotes: !get().showNotes }),
   toggleClosedSessions: () => set({ showClosedSessions: !get().showClosedSessions }),
   toggleClosedTabs: () => set({ showClosedTabs: !get().showClosedTabs }),
   toggleCommandPalette: () => set({ showCommandPalette: !get().showCommandPalette }),

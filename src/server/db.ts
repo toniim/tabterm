@@ -73,7 +73,9 @@ db.exec(`
     term_font_family TEXT NOT NULL DEFAULT 'ui-monospace, SFMono-Regular, Menlo, monospace',
     term_font_size   INTEGER NOT NULL DEFAULT 13,
     term_line_height REAL NOT NULL DEFAULT 1.0,
-    term_theme       TEXT NOT NULL DEFAULT 'Slate Standard'
+    term_theme       TEXT NOT NULL DEFAULT 'Slate Standard',
+    show_sidebar     INTEGER NOT NULL DEFAULT 1,
+    show_notes       INTEGER NOT NULL DEFAULT 1
   );
 
 `);
@@ -81,6 +83,18 @@ db.exec(`
 // Guarantee the settings row exists on every boot (fresh or pre-existing DB), so
 // loadSettings always reads stored values and updateSettings can UPDATE in place.
 db.exec("INSERT OR IGNORE INTO settings (id) VALUES (1);");
+
+// Add layout-visibility columns to pre-existing settings rows (default visible).
+const settingsCols = db
+  .query<{ name: string }, []>("PRAGMA table_info(settings)")
+  .all()
+  .map((c) => c.name);
+if (!settingsCols.includes("show_sidebar")) {
+  db.exec("ALTER TABLE settings ADD COLUMN show_sidebar INTEGER NOT NULL DEFAULT 1");
+}
+if (!settingsCols.includes("show_notes")) {
+  db.exec("ALTER TABLE settings ADD COLUMN show_notes INTEGER NOT NULL DEFAULT 1");
+}
 
 // Derive a sensible title from the first non-empty line of markdown content.
 // Used by the single-row → multi-note migration and by note mutations whenever
@@ -210,6 +224,7 @@ interface NoteRow {
 interface SettingsRow {
   id: number; term_font_family: string; term_font_size: number;
   term_line_height: number; term_theme: string;
+  show_sidebar: number; show_notes: number;
 }
 
 const toPrimaryTab = (r: PrimaryTabRow): PrimaryTab => ({
@@ -255,6 +270,8 @@ const toSettings = (r: SettingsRow): AppSettings => ({
   termFontSize: r.term_font_size,
   termLineHeight: r.term_line_height,
   termTheme: r.term_theme,
+  showSidebar: (r.show_sidebar ?? 1) === 1,
+  showNotes: (r.show_notes ?? 1) === 1,
 });
 
 // ---- prepared statements -----------------------------------------------------
@@ -346,7 +363,7 @@ const q = {
   getSettings: db.query<SettingsRow, []>("SELECT * FROM settings WHERE id = 1"),
   updateSettings: db.query(
     "UPDATE settings SET term_font_family = ?, term_font_size = ?, " +
-      "term_line_height = ?, term_theme = ? WHERE id = 1",
+      "term_line_height = ?, term_theme = ?, show_sidebar = ?, show_notes = ? WHERE id = 1",
   ),
 };
 
@@ -758,6 +775,8 @@ const num = (v: unknown, fallback: number): number =>
   typeof v === "number" && Number.isFinite(v) ? v : fallback;
 const str = (v: unknown, fallback: string, max: number): string =>
   typeof v === "string" && v.length <= max ? v : fallback;
+const bool = (v: unknown, fallback: boolean): boolean =>
+  typeof v === "boolean" ? v : fallback;
 
 export function loadSettings(): AppSettings {
   // Row 1 is guaranteed by the boot-time INSERT OR IGNORE above.
@@ -773,12 +792,16 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
     termFontSize: clamp(num(patch.termFontSize, cur.termFontSize), 8, 32),
     termLineHeight: clamp(num(patch.termLineHeight, cur.termLineHeight), 1.0, 2.0),
     termTheme: str(patch.termTheme, cur.termTheme, 100),
+    showSidebar: bool(patch.showSidebar, cur.showSidebar),
+    showNotes: bool(patch.showNotes, cur.showNotes),
   };
   q.updateSettings.run(
     next.termFontFamily,
     next.termFontSize,
     next.termLineHeight,
     next.termTheme,
+    next.showSidebar ? 1 : 0,
+    next.showNotes ? 1 : 0,
   );
   return next;
 }
