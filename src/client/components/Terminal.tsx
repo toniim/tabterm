@@ -80,6 +80,11 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       fontFamily: s0.termFontFamily,
       fontSize: s0.termFontSize,
       lineHeight: s0.termLineHeight,
+      // With tmux mouse-on, a plain drag is captured by tmux. To still grab a
+      // native browser selection (for clipboard copy) the user holds a modifier
+      // that bypasses mouse reporting: Shift on Linux/Windows, Option/Alt on
+      // macOS — but the macOS path only works when this option is enabled.
+      macOptionClickForcesSelection: true,
       theme: xtermTheme(TERM_THEMES[s0.termTheme] ?? {}),
     });
     termRef.current = term;
