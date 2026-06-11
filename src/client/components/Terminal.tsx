@@ -115,6 +115,27 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     term.open(host);
     fit.fit();
 
+    // xterm types into a hidden <textarea>; password managers (1Password,
+    // LastPass, Bitwarden) and mobile autofill/autocorrect otherwise latch onto
+    // it and pop their toolbar above the keyboard. Opt the field out — and
+    // re-assert on focus, since 1Password re-scans the field when it's focused.
+    const hardenInput = () => {
+      const ta = host.querySelector<HTMLTextAreaElement>("textarea");
+      if (!ta) return;
+      ta.setAttribute("autocomplete", "off");
+      ta.setAttribute("autocorrect", "off");
+      ta.setAttribute("autocapitalize", "off");
+      ta.setAttribute("spellcheck", "false");
+      ta.setAttribute("name", "tabterm-terminal-input"); // non-credential name
+      ta.setAttribute("data-1p-ignore", "true"); // 1Password
+      ta.setAttribute("data-lpignore", "true"); // LastPass
+      ta.setAttribute("data-bwignore", "true"); // Bitwarden
+      ta.setAttribute("data-form-type", "other");
+      ta.setAttribute("data-protonpass-ignore", "true"); // Proton Pass
+      ta.addEventListener("focus", hardenInput, { once: true });
+    };
+    hardenInput();
+
     let ws: WebSocket | null = null;
     let retries = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
