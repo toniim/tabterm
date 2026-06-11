@@ -56,9 +56,16 @@
 }
 
 html,
-body,
-#root {
+body {
   height: 100%;
+}
+
+/* Track the visual viewport (set from JS in main.tsx) so the layout collapses
+   above the iOS soft keyboard, which overlays rather than resizing the layout
+   viewport. Falls back to 100% before JS runs / on browsers without the var. */
+#root {
+  height: var(--app-height, 100%);
+  overflow: hidden;
 }
 
 body {

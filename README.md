@@ -84,6 +84,17 @@ back to a sensible default.
 | `sessionInit`   | _(none)_                 | Default honors your `$SHELL` (zsh or bash) with status/AI-startup hooks layered on. Set a path to use a custom bash rcfile, or `"off"` to launch a bare `$SHELL` with no injection. |
 | `claudeCommand` | `claude`                 | Command launched for "Claude session". Use an absolute path if it's outside `$PATH`.       |
 | `tmux`          | _(auto)_                 | Durable sessions run inside tmux when it's installed. Set to `"off"` to disable and use plain child-process shells (no cross-restart persistence). |
+| `sessionCommands` | `[]`                   | Extra launch-profile buttons in the sidebar. Each entry runs a command as a session. None by default (only a plain shell). |
+
+Example `sessionCommands` entry — adds a button that launches an AI CLI as a session:
+
+```json
+{
+  "sessionCommands": [
+    { "type": "opus", "label": "Opus session", "icon": "✨", "command": "~/bin/opus", "color": "var(--orange)" }
+  ]
+}
+```
 
 Paths support `~` expansion. Example `~/.config/tabterm.json`:
 
@@ -99,17 +110,27 @@ Paths support `~` expansion. Example `~/.config/tabterm.json`:
 > they're per-workspace settings you change live from the status-bar **gear**, and
 > they sync to every device.
 
-## Terminal settings & copy / paste
+## Shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `⌘K` / `Ctrl+K` | Command palette — search & jump to any session, workspace, or action (`↑`/`↓` to select, `⏎` to go, `Esc` to close) |
+| `⌘B` / `Ctrl+B` | Toggle the navigation sidebar |
+| `⌘⇧K` | Clear the terminal viewport + scrollback (client-side; a running TUI repaints on its next refresh) |
+| `⏎` Enter | Submit — sends CR (what TUIs like Claude Code treat as "send") |
+| `Shift`/`⌘`/`⌥` + `⏎` | Insert a newline instead of submitting — sends LF |
+| `⌥`+drag (macOS) · `Shift`+drag (Linux/Win) | Select terminal text for a native browser selection → then copy |
+| `⌘C` / `Ctrl+C` · `⌘V` / `Ctrl+V` | Copy the selection · Paste (bracketed-paste aware) |
+| Mouse wheel · one-finger swipe (touch) | Scroll the terminal (tmux scrollback) |
+| Double-click a session name | Rename the session (header title or sidebar) |
+| Drag a file onto the terminal | Insert its path (uploaded if the OS hides the real path) |
+
+## Terminal settings
 
 - **Fonts & theme** — status-bar gear ⚙️ → font family, size, line-height, theme. Applied live, synced to all clients.
-- **Copy** — under tmux the scroll wheel drives tmux scrollback, so a plain drag is captured by tmux. To grab a **native selection for the OS clipboard**, hold a modifier while dragging, then copy:
-  - **macOS:** ⌥ Option + drag → ⌘C  (⌥ + double/triple-click selects word/line)
-  - **Linux / Windows:** Shift + drag → Ctrl+C
-- **Paste** — ⌘V / Ctrl+V (bracketed-paste aware).
-- **Scroll** — mouse wheel (tmux scrollback) or `prefix + [` for keyboard copy-mode.
-- **Clear** — ⌘⇧K wipes the viewport + scrollback (client-side; a running TUI repaints on its next refresh).
+- **On-screen key bar** — status-bar ⌨️ toggle adds Esc/Ctrl/Alt/arrows for touch keyboards (default on for touch, off on desktop).
 
-> Why a modifier for copy: with `tmux` the multiplexer owns the screen (so the wheel can scroll), which means a bare drag goes to tmux. The modifier tells xterm.js to make a local browser selection instead.
+> Why copy needs a modifier: with `tmux` the multiplexer owns the screen (so the wheel can scroll), which means a bare drag goes to tmux. Holding `⌥`/`Shift` tells xterm.js to make a local browser selection instead, which `⌘C`/`Ctrl+C` then copies.
 
 ## Architecture
 

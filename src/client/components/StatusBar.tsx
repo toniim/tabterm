@@ -1,4 +1,4 @@
-import { Download, Moon, RefreshCw, Sun, Upload } from "lucide-react";
+import { Download, Keyboard, Moon, RefreshCw, Sun, Upload } from "lucide-react";
 import { useStore } from "../store.ts";
 import { TerminalSettingsPopover } from "./TerminalSettingsPopover.tsx";
 
@@ -15,7 +15,8 @@ export function StatusBar() {
   const session = useStore((s) => (s.activeSessionId ? s.sessions[s.activeSessionId] : null));
   const theme = useStore((s) => s.theme);
   const toggleTheme = useStore((s) => s.toggleTheme);
-  const port = location.port || "3000";
+  const showKeyBar = useStore((s) => s.showKeyBar);
+  const toggleKeyBar = useStore((s) => s.toggleKeyBar);
 
   return (
     <footer
@@ -24,25 +25,20 @@ export function StatusBar() {
     >
       <span className="font-semibold tracking-wide">{status === "open" ? "READY" : status.toUpperCase()}</span>
       <Dot />
-      <span>main*</span>
-      <Dot />
-      <span>Node Dev Server: {port}</span>
-      <Dot />
       <span className="truncate">
-        Active: {tab?.label ?? "—"}
+        {tab?.label ?? "—"}
         {session ? ` › ${session.label}` : ""}
       </span>
       <div className="ml-auto flex items-center gap-2.5">
-        <span
-          className="px-1.5 py-0.5 rounded font-semibold tracking-wide"
-          style={{ background: "var(--statusbar-chip)" }}
-        >
-          STATE PERSISTED
-        </span>
-        <span>UTF-8</span>
-        <Dot />
         <TerminalSettingsPopover />
         <div className="flex items-center gap-0.5">
+          <button
+            onClick={toggleKeyBar}
+            className={`${iconBtn} ${showKeyBar ? "bg-[var(--statusbar-chip)] text-[var(--text)]" : ""}`}
+            title={showKeyBar ? "Hide on-screen key bar" : "Show on-screen key bar"}
+          >
+            <Keyboard size={12} />
+          </button>
           <button onClick={toggleTheme} className={iconBtn} title="Toggle theme">
             {theme === "dark" ? <Sun size={12} /> : <Moon size={12} />}
           </button>

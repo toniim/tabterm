@@ -9,6 +9,19 @@ import "./index.css";
 applyTheme(getInitialTheme());
 connect();
 
+// Drive the app height from the visual viewport so the layout collapses above
+// the iOS soft keyboard (which overlays the page instead of resizing the layout
+// viewport). Without this, the terminal + key bar hide behind the keyboard.
+const vv = window.visualViewport;
+const syncAppHeight = () => {
+  const h = vv?.height ?? window.innerHeight;
+  document.documentElement.style.setProperty("--app-height", `${h}px`);
+};
+syncAppHeight();
+vv?.addEventListener("resize", syncAppHeight);
+vv?.addEventListener("scroll", syncAppHeight); // keyboard show/hide also fires scroll
+window.addEventListener("resize", syncAppHeight);
+
 // No beforeunload guard: sessions are durable (tmux-backed) and all state lives
 // server-side, so leaving or reloading the page loses nothing — reconnecting
 // restores the same shells and notes.

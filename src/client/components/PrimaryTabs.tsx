@@ -1,25 +1,32 @@
 import { useRef, useState } from "react";
-import { Archive, Compass, FolderArchive, Plus, X } from "lucide-react";
+import { Archive, Compass, FolderArchive, PanelLeft, PanelRight, Plus, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.ts";
 import { uuid } from "../uuid.ts";
 import { sendMessage } from "../ws.ts";
 import { EditableLabel } from "./EditableLabel.tsx";
 
-function Switch({ on, onClick }: { on: boolean; onClick: () => void }) {
+// VSCode-style panel toggle: filled/accented when the panel is visible.
+function PanelToggle({
+  on,
+  onClick,
+  title,
+  icon,
+}: {
+  on: boolean;
+  onClick: () => void;
+  title: string;
+  icon: React.ReactNode;
+}) {
   return (
     <button
       onClick={onClick}
-      className={`relative w-9 h-5 rounded-full transition-colors ${
-        on ? "bg-[var(--accent)]" : "bg-[var(--switch-off)]"
+      title={title}
+      className={`w-7 h-7 grid place-items-center rounded-md cursor-pointer transition-colors hover:bg-[var(--hover)] ${
+        on ? "text-[var(--accent)]" : "text-[var(--muted)] hover:text-[var(--text)]"
       }`}
-      title="Toggle notes panel"
     >
-      <span
-        className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
-          on ? "left-[18px]" : "left-0.5"
-        }`}
-      />
+      {icon}
     </button>
   );
 }
@@ -28,8 +35,8 @@ export function PrimaryTabs() {
   const primaryTabs = useStore((s) => s.primaryTabs);
   const activeId = useStore((s) => s.activePrimaryTabId);
   const setActive = useStore((s) => s.setActivePrimaryTab);
-  const showNotes = useStore((s) => s.showNotes);
-  const toggleNotes = useStore((s) => s.toggleNotes);
+  const showSidebar = useStore((s) => s.settings.showSidebar);
+  const showNotes = useStore((s) => s.settings.showNotes);
   const toggleClosedSessions = useStore((s) => s.toggleClosedSessions);
   const toggleClosedTabs = useStore((s) => s.toggleClosedTabs);
   const closedCount = useStore((s) =>
@@ -205,8 +212,18 @@ export function PrimaryTabs() {
             <span className="mono">{closedCount}</span>
           </button>
         )}
-        <span className="text-xs font-semibold tracking-wide text-[var(--muted)]">SHOW NOTES</span>
-        <Switch on={showNotes} onClick={toggleNotes} />
+        <PanelToggle
+          on={showSidebar}
+          onClick={() => sendMessage({ type: "settings:update", patch: { showSidebar: !showSidebar } })}
+          title="Toggle navigation sidebar (⌘B)"
+          icon={<PanelLeft size={15} />}
+        />
+        <PanelToggle
+          on={showNotes}
+          onClick={() => sendMessage({ type: "settings:update", patch: { showNotes: !showNotes } })}
+          title="Toggle notes panel"
+          icon={<PanelRight size={15} />}
+        />
       </div>
     </div>
   );

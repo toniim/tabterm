@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { ChevronRight, Folder, HelpCircle } from "lucide-react";
+import { ChevronRight, Folder } from "lucide-react";
 import type { Session } from "../../shared/types.ts";
 import { useStore } from "../store.ts";
 import { sendMessage } from "../ws.ts";
 import { CwdPickerModal } from "./CwdPickerModal.tsx";
+import { EditableLabel } from "./EditableLabel.tsx";
 import { Terminal } from "./Terminal.tsx";
 
 export function TerminalPanel({ session }: { session: Session }) {
@@ -14,9 +15,16 @@ export function TerminalPanel({ session }: { session: Session }) {
   return (
     <div className="flex-1 min-w-0 m-3 rounded-xl border border-[var(--border)] bg-[var(--panel)] flex flex-col overflow-hidden">
       <div className="flex items-center gap-2 px-4 h-11 border-b border-[var(--border)] shrink-0">
-        <ChevronRight size={15} className="text-[var(--accent-soft)]" />
-        <span className="mono text-xs font-semibold tracking-wider uppercase text-[var(--accent-soft)] truncate">
-          {session.label} Terminal Console
+        <ChevronRight size={15} className="text-[var(--accent-soft)] shrink-0" />
+        <span
+          className="mono text-xs font-semibold tracking-wider uppercase text-[var(--accent-soft)] truncate flex items-center gap-1.5 min-w-0"
+          title="Double-click the name to rename this session"
+        >
+          <EditableLabel
+            value={session.label}
+            onCommit={(v) => sendMessage({ type: "rename", entity: "session", id: session.id, label: v })}
+            className="truncate cursor-text"
+          />
         </span>
         {activeTab && (
           <button
@@ -40,15 +48,6 @@ export function TerminalPanel({ session }: { session: Session }) {
         <Terminal key={session.id} sessionId={session.id} />
       </div>
 
-      <div className="flex items-center gap-2 px-4 h-9 border-t border-[var(--border)] shrink-0 mono text-[11px] text-[var(--muted)]">
-        <HelpCircle size={13} />
-        <span>
-          Quick tips: <span className="text-[var(--accent-soft)]">help</span> ·{" "}
-          <span className="text-[var(--accent-soft)]">notes</span> ·{" "}
-          <span className="text-[var(--accent-soft)]">view</span> ·{" "}
-          <span className="text-[var(--accent-soft)]">status</span>
-        </span>
-      </div>
       {pickerOpen && activeTab && (
         <CwdPickerModal
           initial={activeTab.cwd}

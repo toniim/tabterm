@@ -31,11 +31,12 @@ interface StoreState extends AppState {
   // via the command palette). Terminals watch the value, not the contents.
   focusTerminalEpoch: number;
   theme: Theme;
-  showSidebar: boolean;
-  showNotes: boolean;
   showClosedSessions: boolean;
   showClosedTabs: boolean;
   showCommandPalette: boolean;
+  // On-screen terminal key bar (Esc/Ctrl/arrows…). Per-device pref persisted to
+  // localStorage; defaults on for touch devices, off on desktop.
+  showKeyBar: boolean;
   sessionCommands: SessionCommand[];
   // Note ids whose last local edit the server rejected as stale (a newer remote
   // edit exists). NotesPanel shows a resolve banner for the active note in here.
@@ -48,12 +49,20 @@ interface StoreState extends AppState {
   requestFocus: (id: string) => void;
   focusActiveTerminal: () => void;
   toggleTheme: () => void;
-  toggleSidebar: () => void;
-  toggleNotes: () => void;
   toggleClosedSessions: () => void;
   toggleClosedTabs: () => void;
   toggleCommandPalette: () => void;
+  toggleKeyBar: () => void;
   clearNoteConflict: (id: string) => void;
+}
+
+// On-screen key bar default: persisted choice, else on for touch (coarse pointer).
+const KEYBAR_KEY = "tabterm-keybar";
+function initKeyBar(): boolean {
+  const saved = localStorage.getItem(KEYBAR_KEY);
+  if (saved === "1") return true;
+  if (saved === "0") return false;
+  return typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
 }
 
 // Fallback used before the server `init` message arrives; mirrors the DB defaults
@@ -63,6 +72,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   termFontSize: 13,
   termLineHeight: 1.0,
   termTheme: "Slate Standard",
+  showSidebar: true,
+  showNotes: true,
 };
 
 const empty: AppState = {
@@ -114,11 +125,10 @@ export const useStore = create<StoreState>((set, get) => ({
   attention: new Set(),
   focusTerminalEpoch: 0,
   theme: getInitialTheme(),
-  showSidebar: true,
-  showNotes: true,
   showClosedSessions: false,
   showClosedTabs: false,
   showCommandPalette: false,
+  showKeyBar: initKeyBar(),
   sessionCommands: [],
   noteConflicts: new Set(),
 
@@ -141,11 +151,14 @@ export const useStore = create<StoreState>((set, get) => ({
     applyTheme(theme);
     set({ theme });
   },
-  toggleSidebar: () => set({ showSidebar: !get().showSidebar }),
-  toggleNotes: () => set({ showNotes: !get().showNotes }),
   toggleClosedSessions: () => set({ showClosedSessions: !get().showClosedSessions }),
   toggleClosedTabs: () => set({ showClosedTabs: !get().showClosedTabs }),
   toggleCommandPalette: () => set({ showCommandPalette: !get().showCommandPalette }),
+  toggleKeyBar: () => {
+    const v = !get().showKeyBar;
+    localStorage.setItem(KEYBAR_KEY, v ? "1" : "0");
+    set({ showKeyBar: v });
+  },
   clearNoteConflict: (id) => {
     const cur = get().noteConflicts;
     if (!cur.has(id)) return;
