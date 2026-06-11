@@ -89,6 +89,16 @@ export interface Note {
   updatedAt: number;
 }
 
+// Global terminal display preferences. Synced across all clients (persisted in
+// the single-row `settings` DB table) so every device renders terminals alike.
+// `termFontFamily` is a full CSS font stack; `termTheme` names a TERM_THEMES preset.
+export interface AppSettings {
+  termFontFamily: string;
+  termFontSize: number;
+  termLineHeight: number;
+  termTheme: string;
+}
+
 // Full application state sent on connect and held in the client store.
 // `order` maps a primaryTabId to its flat sidebar order of `groupId | sessionId`.
 export interface AppState {
@@ -97,9 +107,10 @@ export interface AppState {
   sessions: Record<string, Session>;
   order: Record<string, string[]>;
   notes: Record<string, Note>;
+  settings: AppSettings;
 }
 
-export type Entity = "primaryTab" | "group" | "session" | "order" | "note";
+export type Entity = "primaryTab" | "group" | "session" | "order" | "note" | "settings";
 
 // Server → Client
 export type ServerMessage =
@@ -142,4 +153,7 @@ export type ClientMessage =
   // overwrite the user's chosen title.
   | { type: "note:update"; noteId: string; content?: string; title?: string }
   | { type: "note:delete"; noteId: string }
-  | { type: "note:setActive"; sessionId: string; noteId: string };
+  | { type: "note:setActive"; sessionId: string; noteId: string }
+  // Update one or more global terminal display preferences. Server clamps
+  // numeric fields, persists the single settings row, and broadcasts the result.
+  | { type: "settings:update"; patch: Partial<AppSettings> };

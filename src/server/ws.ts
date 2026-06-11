@@ -21,6 +21,7 @@ import {
   toggleGroup,
   updateNoteContent,
   updateNoteTitle,
+  updateSettings,
 } from "./db.ts";
 import { config } from "./config.ts";
 import { ensure, kill } from "./gotty.ts";
@@ -208,6 +209,10 @@ export function onMessage(_ws: ServerWebSocket<unknown>, raw: string): void {
     case "note:setActive": {
       const session = setActiveNote(msg.sessionId, msg.noteId);
       if (session) broadcast(setPatch("session", session));
+      break;
+    }
+    case "settings:update": {
+      broadcast(setPatch("settings", updateSettings(msg.patch)));
       break;
     }
   }

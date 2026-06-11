@@ -32,15 +32,35 @@ function xtermTheme(preset: TermPreset): ITheme {
 export function Terminal({ sessionId }: { sessionId: string }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
   const [conn, setConn] = useState<ConnState>("connecting");
   const theme = useStore((s) => s.theme);
-  const termTheme = useStore((s) => s.termTheme);
-  const focusEpoch = useStore((s) => s.focusTerminalEpoch);
+  const settings = useStore((s) => s.settings);
 
   // Re-apply the xterm color theme when the app theme or preset changes.
   useEffect(() => {
-    if (termRef.current) termRef.current.options.theme = xtermTheme(TERM_THEMES[termTheme] ?? {});
-  }, [theme, termTheme]);
+    if (termRef.current) {
+      termRef.current.options.theme = xtermTheme(TERM_THEMES[settings.termTheme] ?? {});
+    }
+  }, [theme, settings.termTheme]);
+
+  // Live-apply font changes to the running terminal without recreating it.
+  // Changing font metrics re-measures the cell box, so refit afterwards — that
+  // recomputes cols/rows and fires onResize, which pushes the new size to GoTTY.
+  useEffect(() => {
+    const t = termRef.current;
+    if (!t) return;
+    t.options.fontFamily = settings.termFontFamily;
+    t.options.fontSize = settings.termFontSize;
+    t.options.lineHeight = settings.termLineHeight;
+    try {
+      fitRef.current?.fit();
+    } catch {
+      // host detached mid-update
+    }
+  }, [settings.termFontFamily, settings.termFontSize, settings.termLineHeight]);
+
+  const focusEpoch = useStore((s) => s.focusTerminalEpoch);
 
   // External focus request (e.g. command palette jump). Only the mounted
   // Terminal for the active session sees this, so no sessionId check needed.
@@ -53,15 +73,18 @@ export function Terminal({ sessionId }: { sessionId: string }) {
     const host = hostRef.current;
     if (!host) return;
 
+    const s0 = useStore.getState().settings;
     const term = new XTerm({
       cursorBlink: true,
       cursorStyle: "bar",
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-      fontSize: 13,
-      theme: xtermTheme(TERM_THEMES[useStore.getState().termTheme] ?? {}),
+      fontFamily: s0.termFontFamily,
+      fontSize: s0.termFontSize,
+      lineHeight: s0.termLineHeight,
+      theme: xtermTheme(TERM_THEMES[s0.termTheme] ?? {}),
     });
     termRef.current = term;
     const fit = new FitAddon();
+    fitRef.current = fit;
     term.loadAddon(fit);
     term.open(host);
     fit.fit();
@@ -211,6 +234,7 @@ export function Terminal({ sessionId }: { sessionId: string }) {
       ws?.close();
       term.dispose();
       termRef.current = null;
+      fitRef.current = null;
     };
   }, [sessionId]);
 

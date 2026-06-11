@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type {
+  AppSettings,
   AppState,
   Group,
   Note,
@@ -35,7 +36,6 @@ interface StoreState extends AppState {
   showClosedSessions: boolean;
   showClosedTabs: boolean;
   showCommandPalette: boolean;
-  termTheme: string;
   sessionCommands: SessionCommand[];
 
   setStatus: (s: ConnStatus) => void;
@@ -50,10 +50,25 @@ interface StoreState extends AppState {
   toggleClosedSessions: () => void;
   toggleClosedTabs: () => void;
   toggleCommandPalette: () => void;
-  setTermTheme: (name: string) => void;
 }
 
-const empty: AppState = { primaryTabs: {}, groups: {}, sessions: {}, order: {}, notes: {} };
+// Fallback used before the server `init` message arrives; mirrors the DB defaults
+// so terminals render with sane font metrics on first paint.
+const DEFAULT_SETTINGS: AppSettings = {
+  termFontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+  termFontSize: 13,
+  termLineHeight: 1.0,
+  termTheme: "Slate Standard",
+};
+
+const empty: AppState = {
+  primaryTabs: {},
+  groups: {},
+  sessions: {},
+  order: {},
+  notes: {},
+  settings: DEFAULT_SETTINGS,
+};
 
 // Return the attention set with `id` removed. Reuses the existing reference when
 // there's nothing to remove, so activation doesn't churn unrelated subscribers.
@@ -91,7 +106,6 @@ export const useStore = create<StoreState>((set, get) => ({
   showClosedSessions: false,
   showClosedTabs: false,
   showCommandPalette: false,
-  termTheme: "Slate Standard",
   sessionCommands: [],
 
   setStatus: (status) => set({ status }),
@@ -118,7 +132,6 @@ export const useStore = create<StoreState>((set, get) => ({
   toggleClosedSessions: () => set({ showClosedSessions: !get().showClosedSessions }),
   toggleClosedTabs: () => set({ showClosedTabs: !get().showClosedTabs }),
   toggleCommandPalette: () => set({ showCommandPalette: !get().showCommandPalette }),
-  setTermTheme: (termTheme) => set({ termTheme }),
 
   applyServerMessage: (msg) => {
     if (msg.type === "init") {
@@ -269,6 +282,10 @@ export const useStore = create<StoreState>((set, get) => ({
       case "note": {
         const n = msg.data as Note;
         set({ notes: { ...get().notes, [n.id]: n } });
+        break;
+      }
+      case "settings": {
+        set({ settings: msg.data as AppSettings });
         break;
       }
     }

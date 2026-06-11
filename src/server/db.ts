@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import type {
+  AppSettings,
   AppState,
   Group,
   GroupColor,
@@ -65,7 +66,20 @@ db.exec(`
     updated_at INTEGER NOT NULL DEFAULT (unixepoch())
   );
 
+  -- Single-row (id = 1) global terminal display preferences, synced to clients.
+  CREATE TABLE IF NOT EXISTS settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    term_font_family TEXT NOT NULL DEFAULT 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    term_font_size   INTEGER NOT NULL DEFAULT 13,
+    term_line_height REAL NOT NULL DEFAULT 1.0,
+    term_theme       TEXT NOT NULL DEFAULT 'Slate Standard'
+  );
+
 `);
+
+// Guarantee the settings row exists on every boot (fresh or pre-existing DB), so
+// loadSettings always reads stored values and updateSettings can UPDATE in place.
+db.exec("INSERT OR IGNORE INTO settings (id) VALUES (1);");
 
 // Derive a sensible title from the first non-empty line of markdown content.
 // Used by the single-row → multi-note migration and by note mutations whenever
@@ -182,6 +196,10 @@ interface NoteRow {
   title_auto_derived: number; position: number;
   created_at: number; updated_at: number;
 }
+interface SettingsRow {
+  id: number; term_font_family: string; term_font_size: number;
+  term_line_height: number; term_theme: string;
+}
 
 const toPrimaryTab = (r: PrimaryTabRow): PrimaryTab => ({
   id: r.id,
@@ -219,6 +237,12 @@ const toNote = (r: NoteRow): Note => ({
   position: r.position,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
+});
+const toSettings = (r: SettingsRow): AppSettings => ({
+  termFontFamily: r.term_font_family,
+  termFontSize: r.term_font_size,
+  termLineHeight: r.term_line_height,
+  termTheme: r.term_theme,
 });
 
 // ---- prepared statements -----------------------------------------------------
@@ -306,6 +330,12 @@ const q = {
     "SELECT MAX(position) AS p FROM notes WHERE session_id = ?",
   ),
   setSessionActiveNote: db.query("UPDATE sessions SET active_note_id = ? WHERE id = ?"),
+
+  getSettings: db.query<SettingsRow, []>("SELECT * FROM settings WHERE id = 1"),
+  updateSettings: db.query(
+    "UPDATE settings SET term_font_family = ?, term_font_size = ?, " +
+      "term_line_height = ?, term_theme = ? WHERE id = 1",
+  ),
 };
 
 // ---- state loading -----------------------------------------------------------
@@ -326,7 +356,7 @@ export function loadState(): AppState {
   const notes: AppState["notes"] = {};
   for (const r of q.allNotes.all()) notes[r.id] = toNote(r);
 
-  return { primaryTabs, groups, sessions, order, notes };
+  return { primaryTabs, groups, sessions, order, notes, settings: loadSettings() };
 }
 
 function readOrder(primaryTabId: string): string[] {
@@ -684,4 +714,40 @@ export function sessionMeta(
     cwd: r.cwd,
     kind: (r.kind ?? "shell") as SessionKind,
   };
+}
+
+// ---- settings ----------------------------------------------------------------
+
+const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+// Runtime-safe coercion for untrusted patch values: `msg.patch` is parsed JSON
+// cast to a type, never validated, and the result is persisted + broadcast to
+// every client. Reject wrong types / non-finite numbers / oversized strings by
+// falling back to the current value instead of fanning garbage out.
+const num = (v: unknown, fallback: number): number =>
+  typeof v === "number" && Number.isFinite(v) ? v : fallback;
+const str = (v: unknown, fallback: string, max: number): string =>
+  typeof v === "string" && v.length <= max ? v : fallback;
+
+export function loadSettings(): AppSettings {
+  // Row 1 is guaranteed by the boot-time INSERT OR IGNORE above.
+  return toSettings(q.getSettings.get()!);
+}
+
+// Merge a partial patch onto the stored row, clamping numeric fields to safe
+// bounds, and return the full updated settings for broadcasting.
+export function updateSettings(patch: Partial<AppSettings>): AppSettings {
+  const cur = loadSettings();
+  const next: AppSettings = {
+    termFontFamily: str(patch.termFontFamily, cur.termFontFamily, 200),
+    termFontSize: clamp(num(patch.termFontSize, cur.termFontSize), 8, 32),
+    termLineHeight: clamp(num(patch.termLineHeight, cur.termLineHeight), 1.0, 2.0),
+    termTheme: str(patch.termTheme, cur.termTheme, 100),
+  };
+  q.updateSettings.run(
+    next.termFontFamily,
+    next.termFontSize,
+    next.termLineHeight,
+    next.termTheme,
+  );
+  return next;
 }
