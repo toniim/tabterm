@@ -154,16 +154,25 @@ export function tmuxEnabled(): boolean {
   return tmuxActive;
 }
 
-const TMUX_CONF = [
-  "set -g status off", // no tmux status bar — the browser is the chrome
-  "set -g window-size latest", // size to the most-recent client, not the smallest
-  // Mouse ON so the scroll wheel drives tmux copy-mode: tmux's client owns the
-  // (alternate) screen while attached, which disables xterm.js's own scrollback,
-  // so without this the wheel does nothing. Shift+drag still does a native
-  // browser text selection (xterm.js bypasses mouse reporting on Shift).
-  "set -g mouse on",
-  "",
-].join("\n");
+// Load the user's own tmux config first (their theme, status bar, keybindings),
+// then apply only the overrides TabTerm needs. Using `-f` means tmux won't
+// auto-load these, so we source them explicitly (both common locations, quietly
+// = no error if absent). Absolute $HOME paths since `-f` config ~ handling
+// varies. Overrides come last so they win:
+//   window-size latest — multi-client mirror sizes to the active typer, not the
+//     smallest (else two devices clamp each other).
+//   mouse on — tmux owns the (alternate) screen while attached, disabling
+//     xterm.js scrollback, so the wheel/touch-swipe needs tmux mouse to scroll.
+function tmuxConfBody(): string {
+  const home = homedir();
+  return [
+    `source-file -q "${join(home, ".config/tmux/tmux.conf")}"`,
+    `source-file -q "${join(home, ".tmux.conf")}"`,
+    "set -g window-size latest",
+    "set -g mouse on",
+    "",
+  ].join("\n");
+}
 
 let tmuxConfPromise: Promise<string> | null = null;
 function tmuxConf(): Promise<string> {
@@ -172,7 +181,7 @@ function tmuxConf(): Promise<string> {
       const dir = join(homedir(), ".cache/tabterm");
       mkdirSync(dir, { recursive: true });
       const path = join(dir, "tmux.conf");
-      writeIfChanged(path, TMUX_CONF);
+      writeIfChanged(path, tmuxConfBody());
       return path;
     })();
   }
