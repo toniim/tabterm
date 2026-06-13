@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Archive, Layers, Plus, Search, TerminalSquare } from "lucide-react";
+import { Archive, Layers, Pencil, Plus, Search, TerminalSquare } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import type { PrimaryTab, Session, SessionCommand, SessionKind } from "../../shared/types.ts";
 import { useStore } from "../store.ts";
@@ -20,7 +20,16 @@ type Entry =
       hasAttention: boolean;
     }
   | { kind: "primaryTab"; id: string; label: string; tab: PrimaryTab }
-  | { kind: "action"; id: string; label: string; run: () => void; icon: "plus-shell" | "archive-sessions" | "archive-tabs" }
+  | {
+      kind: "action";
+      id: string;
+      label: string;
+      run: () => void;
+      icon: "plus-shell" | "archive-sessions" | "archive-tabs" | "rename-session";
+      // When true, activating keeps the palette open (the action drives an
+      // inline follow-up like the rename prompt instead of closing).
+      keepOpen?: boolean;
+    }
   | { kind: "action-launch"; id: string; label: string; run: () => void; cmd: SessionCommand };
 
 function iconFor(entry: Entry, commandsByKind: Record<string, SessionCommand>) {
@@ -34,6 +43,7 @@ function iconFor(entry: Entry, commandsByKind: Record<string, SessionCommand>) {
     return <span style={{ color: entry.cmd.color ?? "var(--muted)" }}>{entry.cmd.icon}</span>;
   }
   if (entry.icon === "plus-shell") return <Plus size={14} className="text-[var(--muted)]" />;
+  if (entry.icon === "rename-session") return <Pencil size={14} className="text-[var(--muted)]" />;
   return <Archive size={14} className="text-[var(--muted)]" />;
 }
 
@@ -41,6 +51,7 @@ export function CommandPalette() {
   const show = useStore((s) => s.showCommandPalette);
   const toggle = useStore((s) => s.toggleCommandPalette);
   const activePrimaryTabId = useStore((s) => s.activePrimaryTabId);
+  const activeSessionId = useStore((s) => s.activeSessionId);
   const setActivePrimaryTab = useStore((s) => s.setActivePrimaryTab);
   const setActiveSession = useStore((s) => s.setActiveSession);
   const requestFocus = useStore((s) => s.requestFocus);
@@ -65,17 +76,39 @@ export function CommandPalette() {
 
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
+  // Non-null when the palette is in the inline "rename this session" prompt:
+  // the search input becomes a rename field for the captured session.
+  const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  const activeSession = activeSessionId ? sessions[activeSessionId] : undefined;
 
   useEffect(() => {
     if (show) {
       setQuery("");
       setSelected(0);
+      setRenaming(null);
       // give the modal a tick to mount before focusing
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [show]);
+
+  const startRename = () => {
+    if (!activeSession) return;
+    setRenaming({ id: activeSession.id, draft: activeSession.label });
+    requestAnimationFrame(() => inputRef.current?.select());
+  };
+
+  const commitRename = () => {
+    if (!renaming) return;
+    const label = renaming.draft.trim();
+    const current = sessions[renaming.id]?.label;
+    if (label && label !== current) {
+      sendMessage({ type: "rename", entity: "session", id: renaming.id, label });
+    }
+    toggle();
+  };
 
   const addSession = (kind: SessionKind) => {
     if (!activePrimaryTabId) return;
@@ -175,6 +208,16 @@ export function CommandPalette() {
     }
 
     // Actions.
+    if (activeSession) {
+      out.push({
+        kind: "action",
+        id: "rename-session",
+        label: `Rename current session (${activeSession.label})`,
+        icon: "rename-session",
+        keepOpen: true,
+        run: startRename,
+      });
+    }
     if (activePrimaryTabId) {
       out.push({
         kind: "action",
@@ -210,7 +253,7 @@ export function CommandPalette() {
 
     return out;
     // `addSession` is stable enough via closure — its inputs are tracked above.
-  }, [primaryTabs, sessions, order, activePrimaryTabId, sessionCommands, sessionCountInActive, attention, toggleClosedSessions, toggleClosedTabs]);
+  }, [primaryTabs, sessions, order, activePrimaryTabId, activeSession, sessionCommands, sessionCountInActive, attention, toggleClosedSessions, toggleClosedTabs]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -256,11 +299,21 @@ export function CommandPalette() {
       toggle();
     } else {
       entry.run();
-      toggle();
+      if (!(entry.kind === "action" && entry.keepOpen)) toggle();
     }
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (renaming) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        commitRename();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        setRenaming(null);
+      }
+      return;
+    }
     if (e.key === "Escape") {
       e.preventDefault();
       toggle();
@@ -314,17 +367,33 @@ export function CommandPalette() {
         className="w-full max-w-xl flex flex-col rounded-xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl overflow-hidden"
       >
         <div className="flex items-center gap-2 px-4 h-12 border-b border-[var(--border)]">
-          <Search size={15} className="text-[var(--muted)] shrink-0" />
+          {renaming ? (
+            <Pencil size={15} className="text-[var(--muted)] shrink-0" />
+          ) : (
+            <Search size={15} className="text-[var(--muted)] shrink-0" />
+          )}
           <input
             ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            value={renaming ? renaming.draft : query}
+            onChange={(e) =>
+              renaming
+                ? setRenaming({ ...renaming, draft: e.target.value })
+                : setQuery(e.target.value)
+            }
             onKeyDown={onKeyDown}
-            placeholder="Jump to a session, workspace, or action…"
+            placeholder={renaming ? "New session name…" : "Jump to a session, workspace, or action…"}
             className="flex-1 bg-transparent outline-none text-sm text-[var(--text)] placeholder:text-[var(--faint)]"
           />
         </div>
 
+        {renaming && (
+          <div className="border-t border-[var(--border)] px-4 py-2 text-xs text-[var(--faint)] flex items-center gap-3">
+            <span><kbd className="mono">⏎</kbd> rename</span>
+            <span><kbd className="mono">esc</kbd> cancel</span>
+          </div>
+        )}
+
+        {!renaming && (
         <div ref={listRef} className="max-h-[55vh] overflow-y-auto py-1">
           {filtered.length === 0 && (
             <div className="text-sm text-[var(--faint)] px-4 py-6 text-center">No matches.</div>
@@ -368,12 +437,15 @@ export function CommandPalette() {
             );
           })}
         </div>
+        )}
 
+        {!renaming && (
         <div className="border-t border-[var(--border)] px-4 py-2 text-xs text-[var(--faint)] flex items-center gap-3">
           <span><kbd className="mono">↑↓</kbd> navigate</span>
           <span><kbd className="mono">⏎</kbd> select</span>
           <span><kbd className="mono">esc</kbd> close</span>
         </div>
+        )}
       </div>
     </div>
   );
