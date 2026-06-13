@@ -25,6 +25,11 @@ interface Shared {
 }
 
 const BUFFER_CAP = 128 * 1024;
+// gotty v1.5.0 ws_wrapper.Read uses a fixed 1024-byte buffer and errors with
+// "Client message exceeded buffer size" on larger messages — that tears down
+// the PTY and tmux clients print "lost tty". Cap each upstream input frame so
+// "1" + payload stays within the buffer.
+const GOTTY_INPUT_MAX = 1023;
 const td = new TextDecoder();
 const sessions = new Map<string, Shared>();
 
@@ -150,7 +155,19 @@ export function onMessage(ws: ServerWebSocket<ProxyData>, message: string | Buff
     }
     return;
   }
-  sendUpstream(s, "1" + td.decode(message)); // GoTTY Input
+  // Fragment large pastes — gotty errors out on a single >1024-byte frame.
+  const bytes = message instanceof Buffer
+    ? new Uint8Array(message.buffer, message.byteOffset, message.byteLength)
+    : new Uint8Array(message);
+  for (let i = 0; i < bytes.length; ) {
+    let end = Math.min(i + GOTTY_INPUT_MAX, bytes.length);
+    // Back off the cut point so we don't slice a UTF-8 multi-byte sequence in
+    // half — the next frame would start with a continuation byte and Bun would
+    // refuse to send it as a text frame.
+    while (end < bytes.length && (bytes[end] & 0xc0) === 0x80) end--;
+    sendUpstream(s, "1" + td.decode(bytes.subarray(i, end))); // GoTTY Input
+    i = end;
+  }
 }
 
 export function onClose(ws: ServerWebSocket<ProxyData>): void {
