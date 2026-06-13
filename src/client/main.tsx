@@ -40,6 +40,17 @@ const clearActiveAttention = () => {
 window.addEventListener("focus", clearActiveAttention);
 document.addEventListener("visibilitychange", clearActiveAttention);
 
+// Register the PWA service worker so Chrome offers "Install app" (chromeless
+// standalone window). Browsers only expose register() in a secure context
+// (https or localhost), so over plain http on a LAN host this is a no-op — we
+// guard on isSecureContext and swallow any rejection rather than log noise. The
+// app works identically with or without it; the SW adds no caching (see sw.js).
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />

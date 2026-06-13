@@ -9,6 +9,15 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="apple-mobile-web-app-title" content="TabTerm" />
+    <!-- Installable PWA: manifest + icons + theme. Chrome shows "Install app" and
+         launches in a standalone (chromeless) window; iOS uses the apple-* meta
+         above for Add-to-Home-Screen. NB: Chrome only registers the SW / offers
+         install over a secure context (https or localhost) — plain http on a LAN
+         host needs https or the per-origin "treat as secure" flag. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0e1117" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <title>TabTerm</title>
   </head>
   <body>
